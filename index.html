@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Folio</title>
+  <meta name="description" content="Your paper library — read, take notes, and think with Claude." />
+  <meta name="theme-color" content="#F4F2EC" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Folio" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500;6..72,600&family=JetBrains+Mono:wght@400;500&display=swap" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" id="sidebar"></aside>
+    <div class="scrim" id="scrim" data-act="close-drawer"></div>
+    <div class="content" id="content">
+      <header class="topbar">
+        <button class="icon-btn mob" data-act="open-drawer" aria-label="Open menu">
+          <svg viewBox="0 0 24 24" width="22" height="22"><path d="M4 7h16M4 12h16M4 17h10" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>
+        </button>
+        <div class="crumbs" id="crumbs">Folio</div>
+        <div class="top-actions" id="topActions"></div>
+      </header>
+      <div class="workspace">
+        <main class="main" id="main"></main>
+        <aside class="panel" id="panel" aria-hidden="true"></aside>
+      </div>
+    </div>
+  </div>
+  <div class="modal-wrap" id="modal" aria-hidden="true"></div>
+  <div class="pop" id="pop"></div>
+  <div class="drop-hint" id="dropHint"><div>Drop PDFs to add them to your library</div></div>
+  <input type="file" id="pdfInput" accept="application/pdf,.pdf" multiple hidden />
+  <div class="toast" id="toast"></div>
+  <script src="app.js"></script>
+</body>
+</html>
