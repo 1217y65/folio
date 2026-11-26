@@ -19,7 +19,7 @@ const STATUS = {
   reading: { label: 'Reading', cls: 'st-reading' },
   done: { label: 'Done', cls: 'st-done' },
 };
-const EMOJIS = ['📄', '📑', '📘', '📗', '📙', '📕', '📓', '🧪', '⚗️', '🔬', '🧬', '💎', '🔆', '💡', '🌈', '🧲', '⚛️', '🔋', '🌡️', '📈', '📊', '🤖', '🧠', '🖥️', '🧮', '📐', '🔭', '🌱', '🔥', '⭐', '❓', '✅', '📌', '🎯', '🗂️', '🧾', '✏️', '🔖', '🌊', '❄️'];
+const EMOJIS = ['📄', '📑', '📘', '📗', '📙', '📕', '📓', '🧪', '⚗️', '🔬', '🧬', '💎', '🔆', '💡', '🌈', '🧲', '⚛️', '🔋', '🌡️', '📈', '📊', '🤖', '💡', '🖥️', '🧮', '📐', '🔭', '🌱', '🔥', '⭐', '❓', '✅', '📌', '🎯', '🗂️', '🧾', '✏️', '🔖', '🌊', '❄️'];
 const TAG_COLORS = [['#e3ecf7', '#2f5687'], ['#f6e6d8', '#8a4e20'], ['#e4f1e6', '#2f6b40'], ['#efe4f4', '#6b3e86'], ['#f8e1e1', '#943434'], ['#f6efd5', '#7a6213'], ['#e0f0f1', '#2b6a70'], ['#ecebe6', '#4f4b42']];
 const tagColor = (t) => { let h = 0; for (const c of t) h = (h * 31 + c.charCodeAt(0)) >>> 0; return TAG_COLORS[h % TAG_COLORS.length]; };
 const tagHTML = (t, x = '') => { const [bg, fg] = tagColor(t); return `<span class="tag" style="--tg:${bg};--tc:${fg}">${esc(t)}${x}</span>`; };
@@ -312,7 +312,7 @@ function renderSidebar() {
     ${Object.entries(STATUS).map(([k, s]) => `<button class="side-btn${act(view.name === 'library' && view.status === k)}" data-act="go" data-to="#st-${k}"><span class="si"><span class="dot" style="background:var(--${s.cls.replace('st-', 'st-')})"></span></span><span class="sl">${s.label}</span><span class="sc">${n(k)}</span></button>`).join('')}
     ${Object.keys(tags).length ? `<div class="side-head">Tags</div>${Object.entries(tags).sort((a, b) => b[1] - a[1]).slice(0, 14).map(([t, c]) => `<button class="side-btn${act(view.name === 'library' && view.tag === t)}" data-act="go" data-to="#tag-${encodeURIComponent(t)}"><span class="si" style="color:${tagColor(t)[1]}">#</span><span class="sl">${esc(t)}</span><span class="sc">${c}</span></button>`).join('')}` : ''}
     <div class="side-head">Concepts</div>
-    <button class="side-btn${act(view.name === 'concepts' && !view.field)}" data-act="go" data-to="#concepts"><span class="si">🧠</span><span class="sl">All concepts</span><span class="sc">${S.concepts.length}</span></button>
+    <button class="side-btn${act(view.name === 'concepts' && !view.field)}" data-act="go" data-to="#concepts"><span class="si">💡</span><span class="sl">All concepts</span><span class="sc">${S.concepts.length}</span></button>
     <button class="side-btn${act(view.name === 'saved')}" data-act="go" data-to="#saved"><span class="si">📌</span><span class="sl">Saved</span><span class="sc">${S.saved.length}</span></button>
     ${Object.entries(fields).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([f, c]) => `<button class="side-btn${act(view.name === 'concepts' && view.field === f)}" data-act="go" data-to="#field-${encodeURIComponent(f)}"><span class="si" style="color:${tagColor(f)[1]}">◆</span><span class="sl">${esc(f)}</span><span class="sc">${c}</span></button>`).join('')}
     ${recent.length ? `<div class="side-head">Recent</div>${recent.map((p) => `<button class="side-btn${act(isDoc() && view.id === p.id)}" data-act="go" data-to="#${isConcept(p) ? 'c' : 'p'}-${p.id}"><span class="si">${p.emoji || (isConcept(p) ? '💡' : '📄')}</span><span class="sl">${esc(p.title || 'Untitled')}</span></button>`).join('')}` : ''}
@@ -492,7 +492,7 @@ function showSelbar() {
   if (!zone || !text || text.length > 400 || !curPaper()) return hideSelbar();
   selCtx = { text, doc: curPaper() };
   const bar = $('#selbar');
-  bar.innerHTML = `<button data-act="sel-concept" title="Open a concept page for this">🧠 Concept</button><button data-act="sel-ask">✨ Explain</button><button data-act="sel-save">📌 Save</button>`;
+  bar.innerHTML = `<button data-act="sel-concept" title="Open a concept page for this">💡 Concept</button><button data-act="sel-ask">✨ Explain</button><button data-act="sel-save">📌 Save</button>`;
   bar.classList.add('open');
   const r = sel.getRangeAt(0).getBoundingClientRect();
   const w = bar.offsetWidth;
@@ -565,14 +565,14 @@ function renderConcepts() {
       <div>${c.tags.map((t) => tagHTML(t)).join('')}${c.related.length ? `<span class="cc-rel">📄 ${c.related.length}</span>` : ''}</div>
     </div>`;
   const body = !S.concepts.length
-    ? `<div class="empty"><div class="big">🧠</div><b>Collect what you learn</b>Concepts you study — PLQY, Stokes shift, Bayesian optimization… — each get their own page, separate from papers.<div style="margin-top:16px"><button class="btn btn-primary" data-act="new-concept">${IC.plus} New concept</button></div></div>`
+    ? `<div class="empty"><div class="big">💡</div><b>Collect what you learn</b>Concepts you study — PLQY, Stokes shift, Bayesian optimization… — each get their own page, separate from papers.<div style="margin-top:16px"><button class="btn btn-primary" data-act="new-concept">${IC.plus} New concept</button></div></div>`
     : !list.length ? '<div class="empty" style="padding:40px"><b>Nothing matches</b>Try a different search or filter.</div>'
     : (view.field ? `<div class="cgrid">${list.map(card).join('')}<button class="ccard cc-new" data-act="new-concept" data-field="${esc(view.field)}">＋ New concept</button></div>`
       : Object.entries(groups).sort((a, b) => (a[0] === 'Unsorted') - (b[0] === 'Unsorted') || b[1].length - a[1].length).map(([f, cs]) => `
         <div class="cgroup"><button class="cg-h" data-act="go" data-to="#field-${encodeURIComponent(f)}"><span style="color:${tagColor(f)[1]}">◆</span> ${esc(f)} <span class="sc">${cs.length}</span></button>
         <div class="cgrid">${cs.map(card).join('')}</div></div>`).join(''));
   return `<div class="lib">
-    <div class="page-title">${view.field ? '' : '🧠 '}${esc(title)}</div>
+    <div class="page-title">${view.field ? '' : '💡 '}${esc(title)}</div>
     <div class="page-sub">${view.field ? `${list.length} concept${list.length === 1 ? '' : 's'}` : `${S.concepts.length} concept${S.concepts.length === 1 ? '' : 's'} · ${S.concepts.filter((c) => c.level === 'solid').length} solid`} — kept separately from your papers</div>
     <div class="viewbar">
       <button class="tbtn${!ui.clevel ? ' on' : ''}" data-act="filter-level" data-l="">All</button>
@@ -627,7 +627,7 @@ function paperHeadHTML(p) {
       <div class="pk">${IC.star} Rating</div><div class="pv">${[1, 2, 3, 4, 5].map((n) => `<button class="star-btn${n <= p.rating ? ' on' : ''}" data-act="rate" data-n="${n}">★</button>`).join('')}</div>
       <div class="pk">${IC.link} DOI / URL</div><div class="pv" style="flex-wrap:nowrap"><input id="pLink" value="${esc(p.doi || p.url)}" placeholder="10.xxxx/… or https://…" />${p.doi || p.url ? `<a class="tbtn" style="flex-shrink:0" href="${esc(p.url || `https://doi.org/${p.doi}`)}" target="_blank" rel="noopener">Open ↗</a>` : ''}</div>
       <div class="pk">${IC.file} PDF</div><div class="pv">${p._busy ? `<span class="busy-row" style="margin:0"><span class="spin"></span>${esc(p._busy)}</span>` : p.pdf ? `<button class="filechip" data-act="panel" data-p="pdf">${IC.pdf}<span>${esc(p.pdf.name)}</span><span style="color:var(--ink-3)">· ${p.pdf.pages}p · ${fmtSize(p.pdf.size)}</span></button>` : `<button class="tbtn" data-act="attach-pdf">${IC.plus} Attach PDF</button>`}</div>
-      ${(() => { const cs = S.concepts.filter((c) => c.related.includes(p.id)); return `<div class="pk">🧠 Concepts</div><div class="pv">${cs.map((c) => `<button class="filechip" data-act="go" data-to="#c-${c.id}">${c.emoji || '💡'} <span>${esc(c.title || 'Untitled')}</span></button>`).join('')}<button class="tbtn" data-act="concept-from-paper">${IC.plus} New concept</button></div>`; })()}
+      ${(() => { const cs = S.concepts.filter((c) => c.related.includes(p.id)); return `<div class="pk">💡 Concepts</div><div class="pv">${cs.map((c) => `<button class="filechip" data-act="go" data-to="#c-${c.id}">${c.emoji || '💡'} <span>${esc(c.title || 'Untitled')}</span></button>`).join('')}<button class="tbtn" data-act="concept-from-paper">${IC.plus} New concept</button></div>`; })()}
       <div class="pk">${IC.clock} Added</div><div class="pv" style="color:var(--ink-2)">${fmtDate(p.added)}</div>
     </div>
     <div class="review">
