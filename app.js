@@ -62,6 +62,7 @@ function newPaper(o = {}) {
     id: uid(), title: '', authors: [], year: '', venue: '', doi: '', url: '',
     status: 'toread', tags: [], rating: 0, emoji: '📄', added: now, updated: now, opened: 0,
     pdf: null, // { name, size, pages, chars }
+    review: {}, ptype: '',
     blocks: templateBlocks(), chat: [],
   }, o);
 }
@@ -82,6 +83,14 @@ function conceptTemplate() {
   const b = (t, x = '') => ({ id: uid(), t, x });
   return [b('h2', 'In one line'), b('p'), b('h2', 'Key ideas'), b('ul'), b('h2', 'Equations & numbers'), b('p'), b('h2', 'Examples · where I saw it'), b('ul'), b('h2', 'Still confusing'), b('ul')];
 }
+const REVIEW = [
+  ['purpose', 'Purpose', 'What problem / question does it tackle?'],
+  ['method', 'Method', 'Materials, synthesis, characterization, models'],
+  ['result', 'Key results', 'Main findings with the numbers that matter'],
+  ['limits', 'Limitations', 'Weak points, open questions'],
+  ['use', 'For my research', 'What I can borrow, compare, or cite'],
+];
+const PTYPES = ['Experimental', 'Computational', 'Review', 'Theory', 'Method / tool'];
 function templateBlocks() {
   const b = (t, x = '') => ({ id: uid(), t, x });
   return [b('h2', 'Summary'), b('p'), b('h2', 'Key findings'), b('ul'), b('h2', 'Methods'), b('p'), b('h2', 'My thoughts'), b('p')];
@@ -116,7 +125,7 @@ function load() {
 function normalize(d) {
   d.papers ||= []; d.concepts ||= []; d.saved ||= [];
   d.concepts.forEach((c) => { c.kind = 'concept'; c.blocks ||= []; c.tags ||= []; c.related ||= []; c.chat ||= []; c.level ||= 'learning'; });
-  d.papers.forEach((p) => { p.blocks ||= []; p.tags ||= []; p.authors ||= []; p.chat ||= []; p.status ||= 'toread'; });
+  d.papers.forEach((p) => { p.review ||= {}; p.blocks ||= []; p.tags ||= []; p.authors ||= []; p.chat ||= []; p.status ||= 'toread'; });
   return d;
 }
 function loadPrefs() { try { return Object.assign({ model: 'claude-sonnet-5-5', code: '', layout: 'table', sort: 'added', dir: -1, canEdit: true }, JSON.parse(localStorage.getItem(PREF) || '{}')); } catch (_) { return { model: 'claude-sonnet-5-5', code: '', layout: 'table', canEdit: true }; } }
@@ -330,12 +339,19 @@ function renderLibrary() {
   $('#topActions').innerHTML = `<button class="tbtn" data-act="new-paper">${IC.plus}<span class="lbl">New</span></button>`;
   const list = libPapers();
   const allTags = [...new Set(S.papers.flatMap((p) => p.tags))].filter((t) => t !== view.tag).sort();
-  const layout = P.layout === 'board' && !view.status ? 'board' : 'table';
+  const layout = P.layout === 'board' && !view.status ? 'board' : P.layout === 'compare' ? 'compare' : 'table';
   const sub = view.status ? `${list.length} paper${list.length === 1 ? '' : 's'}` : view.tag ? `${list.length} paper${list.length === 1 ? '' : 's'} tagged ${esc(view.tag)}` : `${S.papers.length} paper${S.papers.length === 1 ? '' : 's'} · ${S.papers.filter((p) => p.status === 'done').length} read`;
   const th = (k, label, cls = '') => `<th class="${cls}" data-act="sort" data-k="${k}">${label}${ui.sort === k ? (ui.dir > 0 ? ' ↑' : ' ↓') : ''}</th>`;
   let body;
   if (!S.papers.length) {
     body = `<div class="empty"><div class="big">📄</div><b>Your library is empty</b>Drop a PDF here, or add one with a DOI.<div style="margin-top:16px"><button class="btn btn-primary" data-act="new-paper">${IC.plus} Add a paper</button></div></div>`;
+  } else if (layout === 'compare') {
+    body = `<div class="cmp-wrap"><table class="db cmp"><thead><tr><th class="cmp-title">Paper</th>${REVIEW.map(([, l]) => `<th>${l}</th>`).join('')}</tr></thead><tbody>
+      ${list.map((p) => `<tr><td class="cmp-title"><a class="cmp-link" href="#p-${p.id}">${p.emoji || '📄'} ${esc(p.title || 'Untitled')}</a><div class="cmp-meta">${esc([authorsShort(p.authors), p.year].filter(Boolean).join(' · '))}</div><div style="margin-top:4px">${pillHTML(p.status)}${p.ptype ? ` <span class="tag">${esc(p.ptype)}</span>` : ''}</div></td>
+        ${REVIEW.map(([k]) => `<td><textarea class="cmp-in" data-id="${p.id}" data-k="${k}" rows="4" placeholder="—">${esc(p.review?.[k] || '')}</textarea></td>`).join('')}</tr>`).join('')}
+      </tbody></table></div>
+      ${!list.length ? '<div class="empty" style="padding:40px"><b>No papers match</b></div>' : ''}
+      <div class="note">Every cell is editable and stays in sync with the paper's 📋 At a glance card. Open a paper and press <b>Fill with Claude</b> to draft them.</div>`;
   } else if (layout === 'board') {
     body = `<div class="board">${Object.entries(STATUS).map(([k, s]) => {
       const items = list.filter((p) => p.status === k);
@@ -360,11 +376,11 @@ function renderLibrary() {
       ${!list.length ? '<div class="empty" style="padding:40px"><b>No papers match</b>Try a different search or filter.</div>' : ''}
       <button class="addrow" data-act="new-paper"${view.status ? ` data-status="${view.status}"` : ''}>＋ New</button>`;
   }
-  return `<div class="lib">
+  return `<div class="lib${layout === 'compare' ? ' wide' : ''}">
     <div class="page-title">${icon}${esc(title)}</div>
     <div class="page-sub">${sub}</div>
     <div class="viewbar">
-      ${!view.status ? `<button class="tbtn${layout === 'table' ? ' on' : ''}" data-act="layout" data-l="table">${IC.table} Table</button><button class="tbtn${layout === 'board' ? ' on' : ''}" data-act="layout" data-l="board">${IC.board} Board</button>` : ''}
+      ${!view.status ? `<button class="tbtn${layout === 'table' ? ' on' : ''}" data-act="layout" data-l="table">${IC.table} Table</button><button class="tbtn${layout === 'board' ? ' on' : ''}" data-act="layout" data-l="board">${IC.board} Board</button>` : ''}<button class="tbtn${layout === 'compare' ? ' on' : ''}" data-act="layout" data-l="compare">📋 Compare</button>
       <span class="grow"></span>
       <input class="search" id="libSearch" placeholder="Search papers & notes" value="${esc(ui.q)}" />
       <select class="sel" id="libSort" title="Sort">
@@ -378,6 +394,7 @@ function renderLibrary() {
 function bindLibrary() {
   const s = $('#libSearch');
   s?.addEventListener('input', debounce(() => { ui.q = s.value; const pos = s.selectionStart; $('#main').innerHTML = renderLibrary(); bindLibrary(); const n = $('#libSearch'); n.focus(); n.setSelectionRange(pos, pos); }, 180));
+  $$('.cmp-in').forEach((ta) => ta.addEventListener('input', () => { const p = paper(ta.dataset.id); if (!p) return; p.review ||= {}; p.review[ta.dataset.k] = ta.value; p.updated = Date.now(); saveSoon(); }));
   $('#libSort')?.addEventListener('change', (e) => { ui.sort = e.target.value; ui.dir = ['title', 'authors', 'venue', 'status'].includes(ui.sort) ? 1 : -1; P.sort = ui.sort; P.dir = ui.dir; savePrefs(); render(); });
   // board drag & drop between status columns
   let dragId = null;
@@ -605,12 +622,17 @@ function paperHeadHTML(p) {
       <div class="pk">${IC.cal} Year</div><div class="pv"><input id="pYear" value="${esc(p.year)}" placeholder="Empty" inputmode="numeric" /></div>
       <div class="pk">${IC.book} Venue</div><div class="pv"><input id="pVenue" value="${esc(p.venue)}" placeholder="Journal / conference" /></div>
       <div class="pk">${IC.status} Status</div><div class="pv" style="gap:6px">${st}</div>
+      <div class="pk">${IC.book} Type</div><div class="pv" style="gap:4px">${PTYPES.map((t) => `<button class="chip${p.ptype === t ? ' on' : ''}" data-act="set-ptype" data-t="${t}">${t}</button>`).join('')}</div>
       <div class="pk">${IC.tag} Tags</div><div class="pv" id="pTags">${p.tags.map((t, i) => tagHTML(t, `<span class="tag-x" data-act="del-tag" data-i="${i}">✕</span>`)).join('')}<input class="tag-add" id="tagIn" placeholder="${p.tags.length ? '' : 'Add a tag'}" list="tagList" /><datalist id="tagList">${[...new Set(S.papers.flatMap((x) => x.tags))].filter((t) => !p.tags.includes(t)).map((t) => `<option value="${esc(t)}">`).join('')}</datalist></div>
       <div class="pk">${IC.star} Rating</div><div class="pv">${[1, 2, 3, 4, 5].map((n) => `<button class="star-btn${n <= p.rating ? ' on' : ''}" data-act="rate" data-n="${n}">★</button>`).join('')}</div>
       <div class="pk">${IC.link} DOI / URL</div><div class="pv" style="flex-wrap:nowrap"><input id="pLink" value="${esc(p.doi || p.url)}" placeholder="10.xxxx/… or https://…" />${p.doi || p.url ? `<a class="tbtn" style="flex-shrink:0" href="${esc(p.url || `https://doi.org/${p.doi}`)}" target="_blank" rel="noopener">Open ↗</a>` : ''}</div>
       <div class="pk">${IC.file} PDF</div><div class="pv">${p._busy ? `<span class="busy-row" style="margin:0"><span class="spin"></span>${esc(p._busy)}</span>` : p.pdf ? `<button class="filechip" data-act="panel" data-p="pdf">${IC.pdf}<span>${esc(p.pdf.name)}</span><span style="color:var(--ink-3)">· ${p.pdf.pages}p · ${fmtSize(p.pdf.size)}</span></button>` : `<button class="tbtn" data-act="attach-pdf">${IC.plus} Attach PDF</button>`}</div>
       ${(() => { const cs = S.concepts.filter((c) => c.related.includes(p.id)); return `<div class="pk">🧠 Concepts</div><div class="pv">${cs.map((c) => `<button class="filechip" data-act="go" data-to="#c-${c.id}">${c.emoji || '💡'} <span>${esc(c.title || 'Untitled')}</span></button>`).join('')}<button class="tbtn" data-act="concept-from-paper">${IC.plus} New concept</button></div>`; })()}
       <div class="pk">${IC.clock} Added</div><div class="pv" style="color:var(--ink-2)">${fmtDate(p.added)}</div>
+    </div>
+    <div class="review">
+      <div class="review-h"><span>📋 At a glance</span><span class="grow"></span>${p._rbusy ? '<span class="busy-row" style="margin:0"><span class="spin"></span>Claude is reading…</span>' : `<button class="tbtn ai" data-act="fill-review">${IC.spark} Fill with Claude</button>`}</div>
+      ${REVIEW.map(([k, l, ph]) => `<div class="rv-row"><div class="rv-k">${l}</div><textarea class="rv-in" data-k="${k}" rows="1" placeholder="${ph}">${esc(p.review?.[k] || '')}</textarea></div>`).join('')}
     </div>
     <div class="aibar">
       <button class="aibtn primary" data-act="ai-quick" data-q="summarize">${IC.spark} Summarize into notes</button>
@@ -658,6 +680,7 @@ function bindPaperHead(p) {
   bind('#pYear', (v) => { p.year = v.trim(); });
   bind('#pVenue', (v) => { p.venue = v; });
   bind('#cSources', (v) => { p.sources = v; });
+  $$('.rv-in').forEach((ta) => { autosize(ta); ta.addEventListener('input', () => { autosize(ta); p.review ||= {}; p.review[ta.dataset.k] = ta.value; p.updated = Date.now(); saveSoon(); }); });
   const cf = $('#cField'); cf?.addEventListener('input', () => { p.field = cf.value.trim(); p.updated = Date.now(); saveSoon(); });
   cf?.addEventListener('change', () => save());
   const ri = $('#relIn');
@@ -1164,7 +1187,7 @@ async function buildSystem(p, canEdit) {
 - Format with Markdown: short paragraphs, ## headings, bullet lists, **bold** for key terms. Don't use tables. Write chemical formulas and equations with Unicode (CsPbBr₃, λ = 520 nm, ΔG) rather than LaTeX.
 ${canEdit ? `- You can edit the user's notes. When the user asks you to write, change, reorganize, translate, add to or summarize into their notes, first say in one or two sentences what you changed, then output the COMPLETE updated notes (not just the changed part) as Markdown inside <notes>...</notes>. Preserve what the user wrote unless asked to change it. Only use <notes> when the user wants their notes changed.` : '- Note editing is turned off: never output <notes> tags; just answer.'}
 ${TAKEAWAY_RULE}`;
-  const sys = [{ type: 'text', text: rules }];
+  const sys = [{ type: 'text', text: rules + (P.research ? `\n- The user's own research: ${P.research}. Connect to it when it helps.` : '') + `\n- When writing into the user's notes or review card: ${langLine()}` }];
   if (text) sys.push({ type: 'text', text: `<paper_full_text pages="${p.pdf?.pages || '?'}">\n${text}\n</paper_full_text>`, cache_control: { type: 'ephemeral' } });
   sys.push({ type: 'text', text: `<paper_details>\n${meta}\n</paper_details>\n\n<current_notes>\n${blocksToMd(p.blocks) || '(empty)'}\n</current_notes>${text ? '' : '\n\n(No PDF text is available for this paper.)'}` });
   return sys;
@@ -1247,6 +1270,39 @@ function applyNotes(i, mode) {
   toast(mode === 'append' ? 'Added to notes' : 'Notes updated', 'Undo', applyUndo);
 }
 
+function apa(p) {
+  const fmt = (n) => { const parts = n.trim().split(/\s+/); if (parts.length < 2) return n; const last = parts.pop(); return `${last}, ${parts.map((x) => `${x[0]}.`).join(' ')}`; };
+  const a = p.authors.map(fmt);
+  const auth = a.length > 20 ? `${a.slice(0, 19).join(', ')}, … ${a[a.length - 1]}` : a.length > 1 ? `${a.slice(0, -1).join(', ')}, & ${a[a.length - 1]}` : a[0] || '';
+  return [auth && `${auth}`, `(${p.year || 'n.d.'}).`, `${p.title}.`, p.venue && `${p.venue}.`, p.doi && `https://doi.org/${p.doi}`].filter(Boolean).join(' ').replace(/\.\./g, '.');
+}
+const langLine = () => (P.lang === 'en' ? 'Write in English.' : 'Write in Korean (한국어), keeping technical terms, chemical formulas and units in English.');
+async function fillReview(p) {
+  if (!p || p._rbusy) return;
+  if (!(await aiReady(true))) { toast('Claude isn\'t set up yet'); return; }
+  const text = await paperText(p.id);
+  if (!text && !blocksToMd(p.blocks).trim()) { toast('Attach a PDF or write some notes first'); return; }
+  p._rbusy = true; renderPaperHeadOnly();
+  try {
+    const system = await buildSystem(p, false);
+    const keep = Object.fromEntries(REVIEW.map(([k]) => [k, (p.review?.[k] || '').trim()]));
+    const r = await fetch('/api/ai', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-folio-code': encodeURIComponent(P.code || '') },
+      body: JSON.stringify({ model: P.model, max_tokens: 2000, system, messages: [{ role: 'user', content: `Fill in my "at a glance" review card for this paper. ${langLine()} Be concrete and short (1–3 sentences or a few compact bullet-like phrases separated by " · " each). Include the key numbers in "result".${P.research ? ` My own research: ${P.research}. Use it for "use".` : ' For "use", suggest what a materials-chemistry grad student could borrow or cite.'}\nAlso pick "ptype" from: ${PTYPES.join(', ')}.\nReply with ONLY a JSON object with keys: purpose, method, result, limits, use, ptype.` }] }),
+    });
+    const j = await r.json(); if (!r.ok) throw new Error(aiErr(j, r.status));
+    const raw = j.content?.map((c) => c.text || '').join('') || '';
+    const m = JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1));
+    p.review ||= {};
+    let n = 0;
+    for (const [k] of REVIEW) if (!keep[k] && m[k]) { p.review[k] = String(m[k]).trim(); n++; }
+    if (!p.ptype && PTYPES.includes(m.ptype)) p.ptype = m.ptype;
+    p.updated = Date.now();
+    toast(n ? 'At a glance filled ✓' : 'Kept what you already wrote');
+  } catch (e) { toast(e.message || 'Couldn\'t fill the card'); }
+  delete p._rbusy; save(true); if (curPaper() === p) renderPaperHeadOnly();
+}
+
 /* metadata extraction (non-streaming JSON) */
 async function autoMetadata(p, manual) {
   const text = await paperText(p.id);
@@ -1286,6 +1342,9 @@ function renderSettings() {
     <div class="s-card">
       <div class="s-row"><div class="s-text"><div class="s-title">Status</div><div class="s-desc" id="aiStatus">Checking…</div></div><button class="btn btn-ghost btn-sm" data-act="ai-check">Check</button></div>
       <div class="s-row"><div class="s-text"><div class="s-title">Access code</div><div class="s-desc">The FOLIO_ACCESS_CODE you set in Vercel. Saved only on this device.</div><input class="input" id="codeIn" type="text" spellcheck="false" autocapitalize="off" autocorrect="off" value="${esc(P.code)}" placeholder="Access code" style="margin-top:8px" autocomplete="off" /></div></div>
+      <div class="s-row"><div class="s-text"><div class="s-title">Claude writes notes in</div><div class="s-desc">For summaries and the At a glance card. Chat replies follow the language you type in.</div></div>
+        <select class="sel" id="setLang" style="border:1px solid var(--line-2)"><option value="ko"${P.lang !== 'en' ? ' selected' : ''}>한국어</option><option value="en"${P.lang === 'en' ? ' selected' : ''}>English</option></select></div>
+      <div class="s-row"><div class="s-text"><div class="s-title">My research</div><div class="s-desc">One or two lines. Claude uses it for "For my research" and research ideas.</div><textarea class="input" id="setResearch" rows="2" style="height:auto;padding:8px 11px;margin-top:8px;resize:vertical" placeholder="e.g. what you synthesize, how, and what you're optimizing">${esc(P.research || '')}</textarea></div></div>
       <div class="s-row"><div class="s-text"><div class="s-title">Default model</div><div class="s-desc">Sonnet is a good balance · Opus for hard papers · Haiku is cheapest</div></div>
         <select class="sel" id="setModel" style="border:1px solid var(--line-2)">${MODEL_OPTS.map(([v, l]) => `<option value="${v}"${P.model === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div>
     </div>
@@ -1300,7 +1359,7 @@ function renderSettings() {
       <div class="s-row"><div class="s-text"><div class="s-title">Export library</div><div class="s-desc">Papers + notes as JSON, or all notes as Markdown</div></div><button class="btn btn-ghost btn-sm" data-act="export-json">JSON</button><button class="btn btn-ghost btn-sm" data-act="export-md">Markdown</button></div>
       <div class="s-row"><div class="s-text"><div class="s-title">Import JSON backup</div><div class="s-desc">Merges into your library</div></div><label class="btn btn-ghost btn-sm">Choose…<input type="file" id="importIn" accept=".json,application/json" hidden /></label></div>
     </div>
-    <div class="note" style="text-align:center;margin-top:30px">Folio · v1.2</div>
+    <div class="note" style="text-align:center;margin-top:30px">Folio · v1.3</div>
   </div>`;
 }
 async function refreshAiStatus() {
@@ -1378,6 +1437,8 @@ const A = {
   'panel-close': () => { ui.panel = null; const p = curPaper(); if (p) renderTopActions(p); renderPanel(); },
   'attach-pdf': () => { closePop(); pdfTarget = view.id; $('#pdfInput').removeAttribute('multiple'); $('#pdfInput').click(); setTimeout(() => $('#pdfInput').setAttribute('multiple', ''), 500); },
   'pdf-newtab': async () => { const u = await pdfUrl(view.id); if (u) window.open(u, '_blank'); },
+  'set-ptype': (el) => { const p = curPaper(); p.ptype = p.ptype === el.dataset.t ? '' : el.dataset.t; p.updated = Date.now(); save(true); renderPaperHeadOnly(); },
+  'fill-review': () => fillReview(curPaper()),
   'set-level': (el) => { const c = curPaper(); c.level = el.dataset.l; c.updated = Date.now(); save(); renderPaperHeadOnly(); },
   'unlink-paper': (el) => { const c = curPaper(); c.related = c.related.filter((x) => x !== el.dataset.id); save(); renderPaperHeadOnly(); },
   'new-concept': (el) => newConcept_(el.dataset.field),
@@ -1393,14 +1454,14 @@ const A = {
     $('#pop').innerHTML = isConcept(p) ? `<button class="pop-i" data-act="copy-md"><span class="pi">⧉</span>Copy notes as Markdown</button>
       <button class="pop-i" data-act="reset-template"><span class="pi">▤</span>Insert note template</button>
       <button class="pop-i danger" data-act="del-paper"><span class="pi">✕</span>Delete concept</button>` : `<button class="pop-i" data-act="copy-md"><span class="pi">⧉</span>Copy notes as Markdown</button>
-      <button class="pop-i" data-act="copy-cite"><span class="pi">❝</span>Copy citation</button>
+      <button class="pop-i" data-act="copy-cite"><span class="pi">❝</span>Copy APA citation</button>
       ${p.pdf ? '<button class="pop-i" data-act="attach-pdf"><span class="pi">↻</span>Replace PDF</button>' : ''}
       <button class="pop-i" data-act="reset-template"><span class="pi">▤</span>Insert note template</button>
       <button class="pop-i danger" data-act="del-paper"><span class="pi">✕</span>Delete paper</button>`;
     placePop(el); const pop = $('#pop'); pop.style.left = `${Math.max(10, el.getBoundingClientRect().right - pop.offsetWidth)}px`;
   },
   'copy-md': async () => { closePop(); const p = curPaper(); await navigator.clipboard.writeText(`# ${p.title}\n\n${blocksToMd(p.blocks)}`); toast('Copied'); },
-  'copy-cite': async () => { closePop(); const p = curPaper(); const c = `${p.authors.join(', ')}${p.authors.length ? '. ' : ''}${p.title}. ${p.venue ? `${p.venue} ` : ''}${p.year ? `(${p.year})` : ''}${p.doi ? `. https://doi.org/${p.doi}` : ''}`; await navigator.clipboard.writeText(c.trim()); toast('Citation copied'); },
+  'copy-cite': async () => { closePop(); await navigator.clipboard.writeText(apa(curPaper())); toast('APA citation copied'); },
   'reset-template': () => { closePop(); const p = curPaper(); snapshotBlocks(p); p.blocks.push(...(isConcept(p) ? conceptTemplate() : templateBlocks())); save(true); renderBlocks(p); },
   'del-paper': async () => {
     closePop(); const p = curPaper();
@@ -1465,6 +1526,8 @@ document.addEventListener('click', (e) => {
 document.addEventListener('change', async (e) => {
   if (e.target.id === 'codeIn') { P.code = e.target.value.trim(); savePrefs(); aiState = null; await refreshAiStatus(); toast(aiState?.ok ? 'Claude connected ✓' : 'Code saved'); }
   if (e.target.id === 'setModel') { P.model = e.target.value; savePrefs(); toast('Saved'); }
+  if (e.target.id === 'setLang') { P.lang = e.target.value; savePrefs(); toast('Saved'); }
+  if (e.target.id === 'setResearch') { P.research = e.target.value.trim(); savePrefs(); toast('Saved'); }
   if (e.target.id === 'importIn') {
     const f = e.target.files[0]; if (!f) return;
     try {
@@ -1657,7 +1720,7 @@ function hideGate(skipped) {
 }
 
 /* keep the title textarea sized when the layout width changes (panel open/close, rotation) */
-new ResizeObserver(() => { const t = $('#titleIn'); if (t) autosize(t); }).observe($('#main'));
+new ResizeObserver(() => { const t = $('#titleIn'); if (t) autosize(t); $$('.rv-in').forEach(autosize); }).observe($('#main'));
 
 /* ───────── init ───────── */
 initStamps();
