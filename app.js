@@ -409,6 +409,41 @@ function bindLibrary() {
   });
 }
 
+/* ───────── Image attachments for Claude ───────── */
+ui.att = [];
+const imgMem = new Map();
+async function loadImg(file) {
+  try { return await createImageBitmap(file); } catch (_) {
+    const url = URL.createObjectURL(file);
+    try { const im = new Image(); im.src = url; await im.decode(); return im; } finally { setTimeout(() => URL.revokeObjectURL(url), 1000); }
+  }
+}
+function shrink(img, max, q) {
+  const w = img.width, h = img.height; const k = Math.min(1, max / Math.max(w, h));
+  const c = document.createElement('canvas'); c.width = Math.round(w * k); c.height = Math.round(h * k);
+  const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
+  return c.toDataURL('image/jpeg', q);
+}
+async function addAttachments(files) {
+  files = [...files].filter((f) => f.type.startsWith('image/') || /\.(png|jpe?g|gif|webp|heic|heif)$/i.test(f.name));
+  if (!files.length) return;
+  for (const f of files) {
+    if (ui.att.length >= 5) { toast('Up to 5 images per message'); break; }
+    try {
+      const img = await loadImg(f);
+      const full = shrink(img, 1568, 0.85);
+      ui.att.push({ mt: 'image/jpeg', data: full.split(',')[1], thumb: shrink(img, 220, 0.7) });
+    } catch (_) { toast(`Couldn't read ${f.name}`); }
+  }
+  drawAtt(); $('#chatIn')?.focus();
+}
+function drawAtt() {
+  const row = $('#attRow'); if (!row) return;
+  row.innerHTML = ui.att.map((a, i) => `<div class="att"><img src="${a.thumb}" alt=""><button data-act="att-del" data-i="${i}" aria-label="Remove">✕</button></div>`).join('');
+  row.style.display = ui.att.length ? 'flex' : 'none';
+}
+$('#imgInput').addEventListener('change', (e) => { const f = [...e.target.files]; e.target.value = ''; addAttachments(f); });
+
 /* ───────── Study flow: selection → concept, saved snippets ───────── */
 const fromBlocks = (p) => [{ id: uid(), t: 'callout', e: '📄', x: `Met this in <b>${esc(p.title || 'a paper')}</b>` }, { id: uid(), t: 'p', x: '' }];
 function conceptFor(term, fromDoc) {
@@ -1154,9 +1189,11 @@ async function renderPanel() {
   } else {
     panel.dataset.k = 'ai';
     panel.innerHTML = tabs + `<div class="chat" id="chat"></div>
-      <div class="composer"><div class="composer-box">
+      <div class="composer"><div class="composer-box" id="composerBox">
+        <div class="att-row" id="attRow"></div>
         <textarea id="chatIn" rows="1" placeholder="Ask about this ${isConcept(p) ? 'concept' : 'paper'}…"></textarea>
         <div class="composer-row">
+          <button class="att-btn" id="attBtn" title="Attach images (or paste / drop them here)"><svg viewBox="0 0 24 24" width="18" height="18"><path d="M20 11.5l-7.8 7.8a5 5 0 01-7.1-7.1l8.2-8.2a3.3 3.3 0 014.7 4.7l-8.1 8.1a1.7 1.7 0 01-2.4-2.4l7.4-7.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
           <label class="toggle-sm" title="When on, Claude can propose edits to your notes"><input type="checkbox" id="canEdit"${P.canEdit ? ' checked' : ''}/> Can edit notes</label>
           <span class="grow"></span>
           <select class="sel" id="modelSel" style="height:26px;font-size:12px">${MODEL_OPTS.map(([v, l]) => `<option value="${v}"${P.model === v ? ' selected' : ''}>${l}</option>`).join('')}</select>
@@ -1165,6 +1202,9 @@ async function renderPanel() {
     drawChat(p);
     const ti = $('#chatIn');
     ti.addEventListener('input', () => autosize(ti));
+    ti.addEventListener('paste', (e) => { const imgs = [...(e.clipboardData?.files || [])].filter((f) => f.type.startsWith('image/')); if (imgs.length) { e.preventDefault(); addAttachments(imgs); } });
+    $('#attBtn').onclick = () => $('#imgInput').click();
+    drawAtt();
     ti.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); sendChat(); } });
     $('#sendBtn').onclick = sendChat;
     $('#canEdit').onchange = (e) => { P.canEdit = e.target.checked; savePrefs(); };
@@ -1226,7 +1266,7 @@ const QUICK_PROMPTS = {
   ideas: 'Based on this paper, suggest concrete follow-up experiments or ideas I could try in my own research, and what I should watch out for.',
 };
 function msgHTML(p, m, i) {
-  if (m.r === 'user') return `<div class="msg user">${esc(m.shown || m.c)}</div>`;
+  if (m.r === 'user') return `<div class="msg user">${m.thumbs?.length ? `<div class="msg-imgs">${m.thumbs.map((t) => `<img src="${t}" alt="">`).join('')}</div>` : ''}${m.shown === '🖼️' ? '' : esc(m.shown || m.c)}</div>`;
   const { text, notes, takeaway } = splitNotes(m.c);
   const busy = m.streaming;
   return `<div class="msg assistant" data-i="${i}"><div class="who">${IC.spark} Claude${busy ? ' <span class="spin" style="width:11px;height:11px"></span>' : ''}</div>
@@ -1312,17 +1352,46 @@ function aiErr(j, status) {
 async function sendChat(preset, shown) {
   const p = curPaper(); if (!p || ui.aiBusy) return;
   const ti = $('#chatIn');
-  const q = (typeof preset === 'string' ? preset : ti?.value || '').trim();
-  if (!q) return;
+  const typed = typeof preset !== 'string';
+  const att = typed ? ui.att.slice() : [];
+  let q = (typed ? ti?.value || '' : preset).trim();
+  if (!q && !att.length) return;
   if (!(await aiReady(true))) { drawChat(p); toast('Claude isn\'t set up yet'); return; }
-  if (ti && typeof preset !== 'string') { ti.value = ''; autosize(ti); }
+  if (ti && typed) { ti.value = ''; autosize(ti); }
+  if (typed) { ui.att = []; drawAtt(); }
+  if (!q) { q = 'Please look at this image and explain it in the context of what we are studying.'; shown ||= '🖼️'; }
   const canEdit = P.canEdit || [...EDIT_KEYS].some((k) => preset === QUICK_PROMPTS[k]);
-  p.chat.push({ r: 'user', c: q, ...(shown ? { shown } : {}), t: Date.now() });
+  const um = { r: 'user', c: q, ...(shown ? { shown } : {}), t: Date.now() };
+  if (att.length) {
+    um.imgs = []; um.thumbs = [];
+    for (const a of att) { const id = uid(); await filePut(`img-${id}`, { mt: a.mt, data: a.data }).catch(() => {}); imgMem.set(id, { mt: a.mt, data: a.data }); um.imgs.push(id); um.thumbs.push(a.thumb); }
+  }
+  p.chat.push(um);
   const msg = { r: 'assistant', c: '', t: Date.now(), streaming: true };
   p.chat.push(msg); ui.aiBusy = true; drawChat(p); $('#sendBtn') && ($('#sendBtn').disabled = true);
-  const history = p.chat.slice(0, -1).slice(-16).filter((m) => m.c).map((m) => ({ role: m.r, content: m.c }));
+  const recent = p.chat.slice(0, -1).slice(-16).filter((m) => m.c);
+  let budget = 3.2e6; // stay well under the ~4.5 MB request limit
+  const history = [];
+  for (let k = recent.length - 1; k >= 0; k--) {
+    const m = recent[k];
+    if (m.r === 'user' && m.imgs?.length) {
+      const blocks = [];
+      for (const id of m.imgs) {
+        const im = imgMem.get(id) || await fileGet(`img-${id}`).catch(() => null);
+        if (im && im.data.length < budget) { budget -= im.data.length; imgMem.set(id, im); blocks.push({ type: 'image', source: { type: 'base64', media_type: im.mt, data: im.data } }); }
+        else blocks.push({ type: 'text', text: '[An image was shared here earlier but is no longer available.]' });
+      }
+      blocks.push({ type: 'text', text: m.c });
+      history.unshift({ role: 'user', content: blocks });
+    } else history.unshift({ role: m.r, content: m.c });
+  }
   while (history.length && history[0].role !== 'user') history.shift();
-  for (let k = history.length - 1; k > 0; k--) if (history[k].role === history[k - 1].role) { history[k - 1].content += '\n\n' + history[k].content; history.splice(k, 1); }
+  const asBlocks = (c) => (Array.isArray(c) ? c : [{ type: 'text', text: c }]);
+  for (let k = history.length - 1; k > 0; k--) if (history[k].role === history[k - 1].role) {
+    const a = history[k - 1].content, b = history[k].content;
+    history[k - 1].content = typeof a === 'string' && typeof b === 'string' ? `${a}\n\n${b}` : [...asBlocks(a), ...asBlocks(b)];
+    history.splice(k, 1);
+  }
   let last = 0;
   try {
     const system = await buildSystem(p, canEdit);
@@ -1449,7 +1518,7 @@ function renderSettings() {
       <div class="s-row"><div class="s-text"><div class="s-title">Export library</div><div class="s-desc">Papers + notes as JSON, or all notes as Markdown</div></div><button class="btn btn-ghost btn-sm" data-act="export-json">JSON</button><button class="btn btn-ghost btn-sm" data-act="export-md">Markdown</button></div>
       <div class="s-row"><div class="s-text"><div class="s-title">Import JSON backup</div><div class="s-desc">Merges into your library</div></div><label class="btn btn-ghost btn-sm">Choose…<input type="file" id="importIn" accept=".json,application/json" hidden /></label></div>
     </div>
-    <div class="note" style="text-align:center;margin-top:30px">Folio · v1.4.2</div>
+    <div class="note" style="text-align:center;margin-top:30px">Folio · v1.5</div>
   </div>`;
 }
 async function refreshAiStatus() {
@@ -1506,9 +1575,15 @@ const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
 window.addEventListener('dragenter', (e) => { if (!hasFiles(e)) return; dragDepth++; document.body.classList.add('dragover'); });
 window.addEventListener('dragleave', (e) => { if (!hasFiles(e)) return; if (--dragDepth <= 0) { dragDepth = 0; document.body.classList.remove('dragover'); } });
 window.addEventListener('dragover', (e) => { if (hasFiles(e)) e.preventDefault(); });
-window.addEventListener('drop', (e) => {
+window.addEventListener('drop', async (e) => {
   if (!hasFiles(e)) return; e.preventDefault(); dragDepth = 0; document.body.classList.remove('dragover');
   const p = curPaper();
+  const files = [...e.dataTransfer.files];
+  if (files.length && files.every((f) => f.type.startsWith('image/'))) {
+    if (!p) { toast('Open a paper or concept to ask Claude about an image'); return; }
+    if (ui.panel !== 'ai') { ui.panel = 'ai'; renderTopActions(p); await renderPanel(); }
+    addAttachments(files); return;
+  }
   if (p && !p.pdf && e.dataTransfer.files.length === 1) importPdfs(e.dataTransfer.files, p.id);
   else importPdfs(e.dataTransfer.files);
 });
@@ -1567,6 +1642,7 @@ const A = {
   'blk-add': (el) => { const p = curPaper(); const i = p.blocks.findIndex((x) => x.id === el.closest('.blk').dataset.id); const nb = { id: uid(), t: 'p', x: '' }; p.blocks.splice(i + 1, 0, nb); renderBlocks(p, nb.id); const bx = $('.bx', blockEl(nb.id)); bx.textContent = '/'; setCaret(bx, 1); openSlash(bx, nb, ''); },
   'blk-menu': (el) => blockMenu(el),
   'bsel-del': () => bselDelete(),
+  'att-del': (el) => { ui.att.splice(Number(el.dataset.i), 1); drawAtt(); },
   'bsel-copy': () => { bselCopy(false); clearBsel(); },
   'bsel-clear': () => clearBsel(),
   'blk-check': (el) => { const p = curPaper(); const b = p.blocks.find((x) => x.id === el.closest('.blk').dataset.id); b.c = !b.c; el.closest('.blk').classList.toggle('checked', b.c); save(true); },
