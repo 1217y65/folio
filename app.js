@@ -720,6 +720,7 @@ function blockHTML(b, num) {
   return `<div class="blk t-${b.t}${b.t === 'todo' && b.c ? ' checked' : ''}" data-id="${b.id}"><div class="blk-h"><button data-act="blk-add" title="Add below">＋</button><button class="drag" draggable="true" data-act="blk-menu" title="Drag to move · click for options">⋮⋮</button></div>${mk}<div class="bx${ph}" contenteditable="true" spellcheck="false" data-ph="${PH[b.t] || ''}">${b.x || ''}</div></div>`;
 }
 function renderBlocks(p, focusId, offset) {
+  if (bsel) clearBsel();
   if (!p.blocks.length) p.blocks.push({ id: uid(), t: 'p', x: '' });
   let n = 0;
   $('#blocks').innerHTML = p.blocks.map((b) => { n = b.t === 'ol' ? n + 1 : 0; return blockHTML(b, n); }).join('');
@@ -806,6 +807,7 @@ document.addEventListener('keydown', (e) => {
     const p = docOf(undoBlocks.id); if (p) { e.preventDefault(); applyUndo(); }
     return;
   }
+  if (bsel && bselKey(e)) return;
   const bx = e.target.closest?.('.bx');
   if (!bx) { if (e.key === 'Escape') { closePop(); closeModal(); } return; }
   if (e.isComposing || e.keyCode === 229) return;
@@ -834,6 +836,13 @@ document.addEventListener('keydown', (e) => {
     const sel = getSelection();
     if (!sel.isCollapsed || caretOffset(bx) !== 0) return;
     e.preventDefault();
+    // empty block (any type): just remove it and jump to the end of the previous one
+    if (!bx.textContent.trim() && p.blocks.length > 1) {
+      p.blocks.splice(i, 1);
+      const prev = [...p.blocks.slice(0, i)].reverse().find((x) => x.t !== 'hr');
+      const next = p.blocks[i];
+      renderBlocks(p, prev ? prev.id : next?.id, prev ? -1 : 0); saveSoon(); return;
+    }
     if (b.t !== 'p') { b.t = 'p'; delete b.c; renderBlocks(p, b.id, 0); saveSoon(); return; }
     if (i === 0) return;
     const prev = p.blocks[i - 1];
@@ -841,6 +850,21 @@ document.addEventListener('keydown', (e) => {
     const len = plainText(prev.x).length;
     prev.x = (prev.x || '') + (b.x || ''); p.blocks.splice(i, 1);
     renderBlocks(p, prev.id, len); saveSoon(); return;
+  }
+  if (e.key === 'Delete' && getSelection().isCollapsed && caretOffset(bx) >= textLen(bx) && i < p.blocks.length - 1) {
+    e.preventDefault(); const next = p.blocks[i + 1]; const len = textLen(bx);
+    if (next.t !== 'hr') b.x = (b.x || '') + (next.x || '');
+    p.blocks.splice(i + 1, 1); renderBlocks(p, b.id, len); saveSoon(); return;
+  }
+  if (e.key === 'Escape') { e.preventDefault(); bx.blur(); setBsel(p, i, i); return; }
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') {
+    const sel = getSelection();
+    if (!textLen(bx) || (sel.toString().length >= textLen(bx))) { e.preventDefault(); bx.blur(); setBsel(p, 0, p.blocks.length - 1); return; }
+  }
+  if (e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+    const atEdge = e.key === 'ArrowUp' ? caretOffset(bx) === 0 : caretOffset(bx) >= textLen(bx);
+    const j = i + (e.key === 'ArrowUp' ? -1 : 1);
+    if (atEdge && j >= 0 && j < p.blocks.length) { e.preventDefault(); bx.blur(); setBsel(p, i, j); return; }
   }
   if (e.key === 'Tab') { e.preventDefault(); return; }
   if (e.key === 'ArrowUp' && caretOffset(bx) === 0) { const prev = [...p.blocks.slice(0, i)].reverse().find((x) => x.t !== 'hr'); if (prev) { e.preventDefault(); focusBlock(prev.id, -1); } else { e.preventDefault(); $('#titleIn')?.focus(); } return; }
@@ -874,6 +898,77 @@ function applyUndo() {
   if (isDoc() && view.id === p.id) renderBlocks(p);
   toast('Notes restored');
 }
+
+/* multi-block selection: drag across blocks, Esc, Shift+↑/↓, Cmd/Ctrl+A twice → Backspace deletes */
+let bsel = null; // { id, a, b } indices into the current doc's blocks
+function setBsel(p, a, b) {
+  bsel = { id: p.id, anchor: a, a: Math.min(a, b), b: Math.max(a, b), head: b };
+  getSelection().removeAllRanges(); hideSelbar();
+  $$('#blocks .blk').forEach((el, k) => el.classList.toggle('bsel', k >= bsel.a && k <= bsel.b));
+  showBselBar(p);
+}
+function clearBsel() { if (!bsel) return; bsel = null; $$('.blk.bsel').forEach((el) => el.classList.remove('bsel')); $('#bselbar')?.remove(); }
+function showBselBar(p) {
+  let bar = $('#bselbar');
+  if (!bar) { bar = document.createElement('div'); bar.id = 'bselbar'; bar.className = 'bselbar'; document.body.appendChild(bar); bar.addEventListener('mousedown', (e) => e.preventDefault()); }
+  const n = bsel.b - bsel.a + 1;
+  bar.innerHTML = `<span>${n} block${n === 1 ? '' : 's'} selected</span><button data-act="bsel-del">${IC.trash} Delete</button><button data-act="bsel-copy">Copy</button><button data-act="bsel-clear">✕</button>`;
+}
+function bselDelete() {
+  const p = curPaper(); if (!p || !bsel || bsel.id !== p.id) return clearBsel();
+  snapshotBlocks(p);
+  const n = bsel.b - bsel.a + 1; const at = bsel.a;
+  p.blocks.splice(at, n);
+  if (!p.blocks.length) p.blocks.push({ id: uid(), t: 'p', x: '' });
+  clearBsel(); save(true);
+  const prev = p.blocks[Math.max(0, at - 1)];
+  renderBlocks(p, prev?.id, at === 0 ? 0 : -1);
+  toast(`Deleted ${n} block${n === 1 ? '' : 's'}`, 'Undo', applyUndo);
+}
+async function bselCopy(cut) {
+  const p = curPaper(); if (!p || !bsel) return;
+  await navigator.clipboard.writeText(blocksToMd(p.blocks.slice(bsel.a, bsel.b + 1))).catch(() => {});
+  if (cut) bselDelete(); else toast('Copied as Markdown');
+}
+function bselKey(e) {
+  const p = curPaper(); if (!p || bsel.id !== p.id) { clearBsel(); return false; }
+  const mod = e.metaKey || e.ctrlKey;
+  if (e.key === 'Backspace' || e.key === 'Delete') { e.preventDefault(); bselDelete(); return true; }
+  if (e.key === 'Escape') { e.preventDefault(); clearBsel(); return true; }
+  if (mod && e.key.toLowerCase() === 'c') { e.preventDefault(); bselCopy(false); return true; }
+  if (mod && e.key.toLowerCase() === 'x') { e.preventDefault(); bselCopy(true); return true; }
+  if (mod && e.key.toLowerCase() === 'a') { e.preventDefault(); setBsel(p, 0, p.blocks.length - 1); return true; }
+  if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+    e.preventDefault(); const d = e.key === 'ArrowUp' ? -1 : 1;
+    const head = Math.max(0, Math.min(p.blocks.length - 1, bsel.head + d));
+    if (e.shiftKey) setBsel(p, bsel.anchor, head); else setBsel(p, head, head);
+    return true;
+  }
+  if (e.key === 'Enter') { e.preventDefault(); const id = p.blocks[bsel.head]?.id; clearBsel(); focusBlock(id, -1); return true; }
+  if (e.key.length === 1 && !mod) { clearBsel(); return false; }
+  return false;
+}
+let dragFrom = null;
+document.addEventListener('mousedown', (e) => {
+  if (e.target.closest?.('#bselbar, #pop, #toast')) return;
+  const blk = e.target.closest?.('#blocks .blk');
+  if (bsel && !(blk && e.target.closest('.blk-h'))) clearBsel();
+  dragFrom = blk && e.button === 0 && !e.target.closest('.blk-h') ? blk.dataset.id : null;
+});
+document.addEventListener('mousemove', (e) => {
+  if (!dragFrom || !(e.buttons & 1)) return;
+  const blk = document.elementFromPoint(e.clientX, e.clientY)?.closest?.('#blocks .blk');
+  const p = curPaper(); if (!p) return;
+  if (blk && blk.dataset.id !== dragFrom) {
+    const a = p.blocks.findIndex((x) => x.id === dragFrom); const b = p.blocks.findIndex((x) => x.id === blk.dataset.id);
+    if (a < 0 || b < 0) return;
+    document.activeElement?.blur?.();
+    setBsel(p, a, b);
+  } else if (bsel && blk && blk.dataset.id === dragFrom) {
+    const a = p.blocks.findIndex((x) => x.id === dragFrom); setBsel(p, a, a);
+  }
+});
+document.addEventListener('mouseup', () => { dragFrom = null; });
 
 /* block drag & drop */
 let dragBlk = null;
@@ -1359,7 +1454,7 @@ function renderSettings() {
       <div class="s-row"><div class="s-text"><div class="s-title">Export library</div><div class="s-desc">Papers + notes as JSON, or all notes as Markdown</div></div><button class="btn btn-ghost btn-sm" data-act="export-json">JSON</button><button class="btn btn-ghost btn-sm" data-act="export-md">Markdown</button></div>
       <div class="s-row"><div class="s-text"><div class="s-title">Import JSON backup</div><div class="s-desc">Merges into your library</div></div><label class="btn btn-ghost btn-sm">Choose…<input type="file" id="importIn" accept=".json,application/json" hidden /></label></div>
     </div>
-    <div class="note" style="text-align:center;margin-top:30px">Folio · v1.3</div>
+    <div class="note" style="text-align:center;margin-top:30px">Folio · v1.4</div>
   </div>`;
 }
 async function refreshAiStatus() {
@@ -1476,6 +1571,9 @@ const A = {
   tail: () => { const p = curPaper(); if (!p) return; const last = p.blocks[p.blocks.length - 1]; if (last && last.t === 'p' && !plainText(last.x).trim()) return focusBlock(last.id); const nb = { id: uid(), t: 'p', x: '' }; p.blocks.push(nb); renderBlocks(p, nb.id); },
   'blk-add': (el) => { const p = curPaper(); const i = p.blocks.findIndex((x) => x.id === el.closest('.blk').dataset.id); const nb = { id: uid(), t: 'p', x: '' }; p.blocks.splice(i + 1, 0, nb); renderBlocks(p, nb.id); const bx = $('.bx', blockEl(nb.id)); bx.textContent = '/'; setCaret(bx, 1); openSlash(bx, nb, ''); },
   'blk-menu': (el) => blockMenu(el),
+  'bsel-del': () => bselDelete(),
+  'bsel-copy': () => { bselCopy(false); clearBsel(); },
+  'bsel-clear': () => clearBsel(),
   'blk-check': (el) => { const p = curPaper(); const b = p.blocks.find((x) => x.id === el.closest('.blk').dataset.id); b.c = !b.c; el.closest('.blk').classList.toggle('checked', b.c); save(true); },
   'blk-turn': (el) => { closePop(); const p = curPaper(); const b = p.blocks.find((x) => x.id === el.dataset.id); turnInto(p, b, el.dataset.t, false); },
   'blk-dup': (el) => { closePop(); const p = curPaper(); const i = p.blocks.findIndex((x) => x.id === el.dataset.id); const nb = { ...p.blocks[i], id: uid() }; p.blocks.splice(i + 1, 0, nb); save(true); renderBlocks(p, nb.id, -1); },

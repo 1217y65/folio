@@ -382,6 +382,15 @@ body.dragover .drop-hint { display: grid; }
 .cmp-in { width: 100%; min-width: 170px; border: 0; resize: vertical; padding: 10px 12px; font-size: 13px; line-height: 1.5; background: transparent; display: block; min-height: 100px; }
 .cmp-in:focus { background: #fbfaf5; }
 
+/* block multi-select */
+.blk.bsel { background: rgba(47, 74, 122, .11); border-radius: 4px; }
+.blk.bsel .bx { caret-color: transparent; }
+.bselbar { position: fixed; left: 50%; bottom: calc(22px + var(--sab)); transform: translateX(-50%); z-index: 66; display: flex; align-items: center; gap: 4px; background: #2a2721; color: #fff; border-radius: 10px; padding: 5px 6px 5px 14px; box-shadow: var(--shadow); font-size: 13.5px; }
+.bselbar span { margin-right: 8px; color: #d9d4c8; }
+.bselbar button { color: #fff; display: inline-flex; align-items: center; gap: 5px; padding: 6px 10px; border-radius: 6px; font-size: 13.5px; }
+.bselbar button:hover { background: rgba(255, 255, 255, .14); }
+.bselbar button[data-act="bsel-del"] { color: #ffb4a3; }
+
 /* ───── Mobile ───── */
 @media (max-width: 860px) {
   .mob { display: grid; }
