@@ -339,7 +339,7 @@ function renderLibrary() {
   $('#topActions').innerHTML = `<button class="tbtn" data-act="new-paper">${IC.plus}<span class="lbl">New</span></button>`;
   const list = libPapers();
   const allTags = [...new Set(S.papers.flatMap((p) => p.tags))].filter((t) => t !== view.tag).sort();
-  const layout = P.layout === 'board' && !view.status ? 'board' : P.layout === 'compare' ? 'compare' : 'table';
+  const layout = P.layout === 'board' && !view.status ? 'board' : 'table';
   const sub = view.status ? `${list.length} paper${list.length === 1 ? '' : 's'}` : view.tag ? `${list.length} paper${list.length === 1 ? '' : 's'} tagged ${esc(view.tag)}` : `${S.papers.length} paper${S.papers.length === 1 ? '' : 's'} · ${S.papers.filter((p) => p.status === 'done').length} read`;
   const th = (k, label, cls = '') => `<th class="${cls}" data-act="sort" data-k="${k}">${label}${ui.sort === k ? (ui.dir > 0 ? ' ↑' : ' ↓') : ''}</th>`;
   let body;
@@ -380,7 +380,7 @@ function renderLibrary() {
     <div class="page-title">${icon}${esc(title)}</div>
     <div class="page-sub">${sub}</div>
     <div class="viewbar">
-      ${!view.status ? `<button class="tbtn${layout === 'table' ? ' on' : ''}" data-act="layout" data-l="table">${IC.table} Table</button><button class="tbtn${layout === 'board' ? ' on' : ''}" data-act="layout" data-l="board">${IC.board} Board</button>` : ''}<button class="tbtn${layout === 'compare' ? ' on' : ''}" data-act="layout" data-l="compare">📋 Compare</button>
+      ${!view.status ? `<button class="tbtn${layout === 'table' ? ' on' : ''}" data-act="layout" data-l="table">${IC.table} Table</button><button class="tbtn${layout === 'board' ? ' on' : ''}" data-act="layout" data-l="board">${IC.board} Board</button>` : ''}
       <span class="grow"></span>
       <input class="search" id="libSearch" placeholder="Search papers & notes" value="${esc(ui.q)}" />
       <select class="sel" id="libSort" title="Sort">
@@ -629,10 +629,6 @@ function paperHeadHTML(p) {
       <div class="pk">${IC.file} PDF</div><div class="pv">${p._busy ? `<span class="busy-row" style="margin:0"><span class="spin"></span>${esc(p._busy)}</span>` : p.pdf ? `<button class="filechip" data-act="panel" data-p="pdf">${IC.pdf}<span>${esc(p.pdf.name)}</span><span style="color:var(--ink-3)">· ${p.pdf.pages}p · ${fmtSize(p.pdf.size)}</span></button>` : `<button class="tbtn" data-act="attach-pdf">${IC.plus} Attach PDF</button>`}</div>
       ${(() => { const cs = S.concepts.filter((c) => c.related.includes(p.id)); return `<div class="pk">💡 Concepts</div><div class="pv">${cs.map((c) => `<button class="filechip" data-act="go" data-to="#c-${c.id}">${c.emoji || '💡'} <span>${esc(c.title || 'Untitled')}</span></button>`).join('')}<button class="tbtn" data-act="concept-from-paper">${IC.plus} New concept</button></div>`; })()}
       <div class="pk">${IC.clock} Added</div><div class="pv" style="color:var(--ink-2)">${fmtDate(p.added)}</div>
-    </div>
-    <div class="review">
-      <div class="review-h"><span>📋 At a glance</span><span class="grow"></span>${p._rbusy ? '<span class="busy-row" style="margin:0"><span class="spin"></span>Claude is reading…</span>' : `<button class="tbtn ai" data-act="fill-review">${IC.spark} Fill with Claude</button>`}</div>
-      ${REVIEW.map(([k, l, ph]) => `<div class="rv-row"><div class="rv-k">${l}</div><textarea class="rv-in" data-k="${k}" rows="1" placeholder="${ph}">${esc(p.review?.[k] || '')}</textarea></div>`).join('')}
     </div>
     <div class="aibar">
       <button class="aibtn primary" data-act="ai-quick" data-q="summarize">${IC.spark} Summarize into notes</button>
@@ -1454,7 +1450,7 @@ function renderSettings() {
       <div class="s-row"><div class="s-text"><div class="s-title">Export library</div><div class="s-desc">Papers + notes as JSON, or all notes as Markdown</div></div><button class="btn btn-ghost btn-sm" data-act="export-json">JSON</button><button class="btn btn-ghost btn-sm" data-act="export-md">Markdown</button></div>
       <div class="s-row"><div class="s-text"><div class="s-title">Import JSON backup</div><div class="s-desc">Merges into your library</div></div><label class="btn btn-ghost btn-sm">Choose…<input type="file" id="importIn" accept=".json,application/json" hidden /></label></div>
     </div>
-    <div class="note" style="text-align:center;margin-top:30px">Folio · v1.4</div>
+    <div class="note" style="text-align:center;margin-top:30px">Folio · v1.4.1</div>
   </div>`;
 }
 async function refreshAiStatus() {
