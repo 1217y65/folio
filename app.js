@@ -929,7 +929,7 @@ let aiState = null; // { ok, needsCode, codeOk }
 async function aiReady(force) {
   if (aiState && !force) return aiState.ok;
   try {
-    const r = await fetch('/api/ai', { headers: { 'x-folio-code': P.code || '' }, cache: 'no-store' });
+    const r = await fetch('/api/ai', { headers: { 'x-folio-code': encodeURIComponent(P.code || '') }, cache: 'no-store' });
     const j = await r.json(); aiState = { ok: j.ready && j.codeOk, ...j };
   } catch (_) { aiState = { ok: false, offline: true }; }
   return aiState.ok;
@@ -1020,7 +1020,7 @@ ${canEdit ? `- You can edit the user's notes. When the user asks you to write, c
   return sys;
 }
 async function streamClaude(body, onText) {
-  const r = await fetch('/api/ai', { method: 'POST', headers: { 'content-type': 'application/json', 'x-folio-code': P.code || '' }, body: JSON.stringify({ ...body, stream: true }) });
+  const r = await fetch('/api/ai', { method: 'POST', headers: { 'content-type': 'application/json', 'x-folio-code': encodeURIComponent(P.code || '') }, body: JSON.stringify({ ...body, stream: true }) });
   if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(aiErr(j, r.status)); }
   const reader = r.body.getReader(); const dec = new TextDecoder(); let buf = ''; let out = '';
   for (;;) {
@@ -1105,7 +1105,7 @@ async function autoMetadata(p, manual) {
   p._busy = 'Claude is filling in details…'; rerenderIf(p.id);
   try {
     const r = await fetch('/api/ai', {
-      method: 'POST', headers: { 'content-type': 'application/json', 'x-folio-code': P.code || '' },
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-folio-code': encodeURIComponent(P.code || '') },
       body: JSON.stringify({
         model: 'claude-haiku-5-5', max_tokens: 600,
         system: 'You extract bibliographic metadata from the first pages of a scientific paper. Reply with ONLY a JSON object, no prose.',
@@ -1135,7 +1135,7 @@ function renderSettings() {
     <div class="s-group">Claude</div>
     <div class="s-card">
       <div class="s-row"><div class="s-text"><div class="s-title">Status</div><div class="s-desc" id="aiStatus">Checking…</div></div><button class="btn btn-ghost btn-sm" data-act="ai-check">Check</button></div>
-      <div class="s-row"><div class="s-text"><div class="s-title">Access code</div><div class="s-desc">The FOLIO_ACCESS_CODE you set in Vercel. Saved only on this device.</div><input class="input" id="codeIn" type="password" value="${esc(P.code)}" placeholder="Access code" style="margin-top:8px" autocomplete="off" /></div></div>
+      <div class="s-row"><div class="s-text"><div class="s-title">Access code</div><div class="s-desc">The FOLIO_ACCESS_CODE you set in Vercel. Saved only on this device.</div><input class="input" id="codeIn" type="text" spellcheck="false" autocapitalize="off" autocorrect="off" value="${esc(P.code)}" placeholder="Access code" style="margin-top:8px" autocomplete="off" /></div></div>
       <div class="s-row"><div class="s-text"><div class="s-title">Default model</div><div class="s-desc">Sonnet is a good balance · Opus for hard papers · Haiku is cheapest</div></div>
         <select class="sel" id="setModel" style="border:1px solid var(--line-2)">${MODEL_OPTS.map(([v, l]) => `<option value="${v}"${P.model === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div>
     </div>
@@ -1156,7 +1156,7 @@ function renderSettings() {
 async function refreshAiStatus() {
   const el = $('#aiStatus'); if (!el) return;
   await aiReady(true);
-  el.innerHTML = aiState.ok ? '✅ Connected' : aiState.offline ? '⚠️ Can\'t reach /api/ai' : !aiState.ready ? '⚠️ No API key on the server (ANTHROPIC_API_KEY)' : '🔒 Enter the access code below';
+  el.innerHTML = aiState.ok ? '✅ Connected' : aiState.offline ? '⚠️ Can\'t reach /api/ai' : !aiState.ready ? '⚠️ No API key on the server (ANTHROPIC_API_KEY)' : P.code ? '❌ Access code doesn\'t match FOLIO_ACCESS_CODE in Vercel' : '🔒 Enter the access code below';
 }
 
 /* ───────── modal / toast ───────── */
@@ -1299,7 +1299,7 @@ document.addEventListener('click', (e) => {
   A[el.dataset.act]?.(el, e);
 });
 document.addEventListener('change', async (e) => {
-  if (e.target.id === 'codeIn') { P.code = e.target.value.trim(); savePrefs(); aiState = null; refreshAiStatus(); }
+  if (e.target.id === 'codeIn') { P.code = e.target.value.trim(); savePrefs(); aiState = null; await refreshAiStatus(); toast(aiState?.ok ? 'Claude connected ✓' : 'Code saved'); }
   if (e.target.id === 'setModel') { P.model = e.target.value; savePrefs(); toast('Saved'); }
   if (e.target.id === 'importIn') {
     const f = e.target.files[0]; if (!f) return;
