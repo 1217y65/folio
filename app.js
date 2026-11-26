@@ -75,7 +75,7 @@ function newConcept(o = {}) {
   const now = Date.now();
   return Object.assign({
     id: uid(), kind: 'concept', title: '', emoji: '💡', field: '', tags: [], level: 'learning', sources: '', related: [],
-    added: now, updated: now, opened: 0, blocks: conceptTemplate(), chat: [],
+    added: now, updated: now, opened: 0, blocks: [{ id: uid(), t: 'p', x: '' }], chat: [], from: null,
   }, o);
 }
 function conceptTemplate() {
@@ -84,7 +84,7 @@ function conceptTemplate() {
 }
 function templateBlocks() {
   const b = (t, x = '') => ({ id: uid(), t, x });
-  return [b('h2', 'TL;DR'), b('p'), b('h2', 'Key findings'), b('ul'), b('h2', 'Methods'), b('p'), b('h2', 'My thoughts'), b('p')];
+  return [b('h2', 'Summary'), b('p'), b('h2', 'Key findings'), b('ul'), b('h2', 'Methods'), b('p'), b('h2', 'My thoughts'), b('p')];
 }
 function seed() {
   const p = newPaper({
@@ -106,7 +106,7 @@ function seed() {
     b('p', 'Ask things like <i>"정리한 노트를 한국어로 바꿔줘"</i> or <i>"Add a section comparing this to CsPbBr₃ LARP synthesis"</i>. Claude proposes the change — you choose whether to apply it.'),
     b('quote', 'Feel free to delete this page.'),
   ];
-  return { v: 1, _pristine: true, papers: [p], concepts: [] };
+  return { v: 1, _pristine: true, papers: [p], concepts: [], saved: [] };
 }
 function load() {
   let raw = null;
@@ -114,7 +114,7 @@ function load() {
   return seed();
 }
 function normalize(d) {
-  d.papers ||= []; d.concepts ||= [];
+  d.papers ||= []; d.concepts ||= []; d.saved ||= [];
   d.concepts.forEach((c) => { c.kind = 'concept'; c.blocks ||= []; c.tags ||= []; c.related ||= []; c.chat ||= []; c.level ||= 'learning'; });
   d.papers.forEach((p) => { p.blocks ||= []; p.tags ||= []; p.authors ||= []; p.chat ||= []; p.status ||= 'toread'; });
   return d;
@@ -244,6 +244,7 @@ function parseHash() {
   if (h.startsWith('tag-')) return { name: 'library', tag: decodeURIComponent(h.slice(4)) };
   if (h.startsWith('c-')) return { name: 'concept', id: h.slice(2) };
   if (h === 'concepts') return { name: 'concepts' };
+  if (h === 'saved') return { name: 'saved' };
   if (h.startsWith('field-')) return { name: 'concepts', field: decodeURIComponent(h.slice(6)) };
   if (h === 'settings') return { name: 'settings' };
   return { name: 'library' };
@@ -272,6 +273,8 @@ function render() {
     if (!c) { view = { name: 'concepts' }; return go('#concepts'); }
     c.opened = Date.now(); saveSoon();
     renderPaper(c);
+  } else if (view.name === 'saved') {
+    main.innerHTML = renderSaved(); bindSaved();
   } else if (view.name === 'concepts') {
     main.innerHTML = renderConcepts(); bindConcepts();
   } else if (view.name === 'settings') {
@@ -301,6 +304,7 @@ function renderSidebar() {
     ${Object.keys(tags).length ? `<div class="side-head">Tags</div>${Object.entries(tags).sort((a, b) => b[1] - a[1]).slice(0, 14).map(([t, c]) => `<button class="side-btn${act(view.name === 'library' && view.tag === t)}" data-act="go" data-to="#tag-${encodeURIComponent(t)}"><span class="si" style="color:${tagColor(t)[1]}">#</span><span class="sl">${esc(t)}</span><span class="sc">${c}</span></button>`).join('')}` : ''}
     <div class="side-head">Concepts</div>
     <button class="side-btn${act(view.name === 'concepts' && !view.field)}" data-act="go" data-to="#concepts"><span class="si">🧠</span><span class="sl">All concepts</span><span class="sc">${S.concepts.length}</span></button>
+    <button class="side-btn${act(view.name === 'saved')}" data-act="go" data-to="#saved"><span class="si">📌</span><span class="sl">Saved</span><span class="sc">${S.saved.length}</span></button>
     ${Object.entries(fields).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([f, c]) => `<button class="side-btn${act(view.name === 'concepts' && view.field === f)}" data-act="go" data-to="#field-${encodeURIComponent(f)}"><span class="si" style="color:${tagColor(f)[1]}">◆</span><span class="sl">${esc(f)}</span><span class="sc">${c}</span></button>`).join('')}
     ${recent.length ? `<div class="side-head">Recent</div>${recent.map((p) => `<button class="side-btn${act(isDoc() && view.id === p.id)}" data-act="go" data-to="#${isConcept(p) ? 'c' : 'p'}-${p.id}"><span class="si">${p.emoji || (isConcept(p) ? '💡' : '📄')}</span><span class="sl">${esc(p.title || 'Untitled')}</span></button>`).join('')}` : ''}
     <div class="side-foot"><button class="side-btn${act(view.name === 'settings')}" data-act="go" data-to="#settings"><span class="si">${IC.gear}</span><span class="sl">Settings</span></button></div>`;
@@ -388,6 +392,134 @@ function bindLibrary() {
   });
 }
 
+/* ───────── Study flow: selection → concept, saved snippets ───────── */
+const fromBlocks = (p) => [{ id: uid(), t: 'callout', e: '📄', x: `Met this in <b>${esc(p.title || 'a paper')}</b>` }, { id: uid(), t: 'p', x: '' }];
+function conceptFor(term, fromDoc) {
+  term = term.replace(/\s+/g, ' ').trim().replace(/^[“"']|[”"'.,:;]$/g, '');
+  if (!term) return;
+  const fromPaper = fromDoc && !isConcept(fromDoc) ? fromDoc : null;
+  let c = S.concepts.find((x) => x.title.trim().toLowerCase() === term.toLowerCase());
+  if (c) { if (fromPaper && !c.related.includes(fromPaper.id)) { c.related.push(fromPaper.id); c.updated = Date.now(); } }
+  else {
+    c = newConcept({ title: term.length > 80 ? term.slice(0, 80) : term, related: fromPaper ? [fromPaper.id] : [], from: fromPaper?.id || null, blocks: fromPaper ? fromBlocks(fromPaper) : [{ id: uid(), t: 'p', x: '' }] });
+    S.concepts.unshift(c);
+    if (fromDoc && isConcept(fromDoc)) c.field = fromDoc.field || '';
+  }
+  save();
+  ui.panel = 'ai';
+  go(`#c-${c.id}`);
+  toast(fromPaper ? 'Concept page ready — linked to this paper' : 'Concept page ready');
+}
+function suggestHTML(c) {
+  if (c.chat.length) return '';
+  const src = c.from && paper(c.from);
+  const t = c.title || 'this concept';
+  const q = src ? `I ran into “${t}” while reading “${src.title}”. Explain what it is — intuition first, then the precise meaning — and how it's used in that paper.` : `Explain “${t}” from scratch: intuition first, then the precise meaning, then a concrete example from my field.`;
+  return `<button class="suggest" data-act="suggest-ask" data-q="${esc(q)}" data-s="${esc(src ? `Explain “${t}” (from ${src.title.slice(0, 40)}${src.title.length > 40 ? '…' : ''})` : `Explain “${t}”`)}">${IC.spark}<span><b>Explain “${esc(t)}”</b>${src ? `<br/><span>in the context of ${esc(src.title)}</span>` : '<br/><span>intuition first, then the details</span>'}</span></button>`;
+}
+async function askNow(q, shown) {
+  const p = curPaper(); if (!p) return;
+  if (ui.panel !== 'ai') { ui.panel = 'ai'; renderTopActions(p); await renderPanel(); }
+  sendChat(q, shown);
+}
+function askedBefore(p, i) { for (let k = i - 1; k >= 0; k--) if (p.chat[k].r === 'user') return p.chat[k].shown || p.chat[k].c; return ''; }
+function saveSnippet(kind, md, doc, q) {
+  const it = { id: uid(), kind, md: String(md || '').trim(), q: q || '', src: doc?.id || null, concept: doc && isConcept(doc) ? doc.id : null, added: Date.now(), updated: Date.now() };
+  if (!it.md) return;
+  S.saved.unshift(it); save(); refreshSnips();
+  if (doc && !isConcept(doc)) toast('Saved 📌', 'File under concept…', () => fileUnder(it.id, $('#toast')));
+  else toast(kind === 'takeaway' ? 'Takeaway saved 📌' : 'Saved 📌');
+}
+function drawChatKeep(p) { const el = $('#chat'); const top = el?.scrollTop; drawChat(p); if (el && top != null) $('#chat').scrollTop = top; }
+const KIND = { takeaway: { i: '💡', l: 'Takeaway' }, answer: { i: '✨', l: 'Answer' }, highlight: { i: '🖍️', l: 'Highlight' } };
+function snipHTML(it, here) {
+  const src = it.src && docOf(it.src); const con = it.concept && concept(it.concept);
+  const chip = (d, pre) => d ? `<button class="snip-src" data-act="go" data-to="#${isConcept(d) ? 'c' : 'p'}-${d.id}">${d.emoji || (isConcept(d) ? '💡' : '📄')} ${pre}${esc((d.title || 'Untitled').slice(0, 60))}</button>` : '';
+  const body = it.kind === 'answer' ? `<div class="md snip-md clamp">${mdToHTML(it.md)}</div>` : `<div class="snip-md${it.kind === 'takeaway' ? ' snip-tk' : ' snip-hl'}">${it.kind === 'highlight' ? esc(it.md) : inlineMd(it.md)}</div>`;
+  return `<div class="snip k-${it.kind}" data-id="${it.id}">
+    <div class="snip-h"><span class="snip-k">${KIND[it.kind]?.i} ${KIND[it.kind]?.l}</span>${it.q ? `<span class="snip-q">Q · ${esc(it.q.slice(0, 90))}</span>` : ''}<span class="grow"></span><span class="snip-d">${relTime(it.added)}</span></div>
+    ${body}
+    <div class="snip-f">${src && src.id !== here ? chip(src, '') : (!src && it.src ? '<span class="snip-src">deleted source</span>' : '')}${con && con.id !== here && con.id !== it.src ? chip(con, '→ ') : ''}<span class="grow"></span>
+      ${here ? `<button data-act="snip-notes" data-id="${it.id}">↓ Into notes</button>` : ''}<button data-act="snip-file" data-id="${it.id}">${con ? 'Move…' : '→ Concept'}</button><button data-act="snip-del" data-id="${it.id}" title="Remove">✕</button></div>
+  </div>`;
+}
+function renderSnips(p) {
+  const el = $('#snips'); if (!el || !p) return;
+  const items = S.saved.filter((x) => x.src === p.id || x.concept === p.id);
+  el.innerHTML = items.length ? `<div class="snips"><div class="snips-h">📌 Saved from study sessions <span>${items.length}</span></div>${items.map((x) => snipHTML(x, p.id)).join('')}</div>` : '';
+}
+function refreshSnips() { renderSidebar(); if (isDoc()) renderSnips(curPaper()); else if (view.name === 'saved') render(); }
+function fileUnder(id, anchor) {
+  const it = S.saved.find((x) => x.id === id); if (!it) return;
+  const draw = (q = '') => {
+    const ql = q.trim().toLowerCase();
+    const list = S.concepts.filter((c) => !ql || (c.title || '').toLowerCase().includes(ql)).slice(0, 8);
+    $('#popList').innerHTML = list.map((c) => `<button class="pop-i${it.concept === c.id ? ' sel' : ''}" data-act="snip-pick" data-id="${id}" data-c="${c.id}"><span class="pi">${c.emoji || '💡'}</span>${esc(c.title || 'Untitled')}</button>`).join('')
+      + (q.trim() ? `<button class="pop-i" data-act="snip-pick" data-id="${id}" data-c="__new" data-t="${esc(q.trim())}"><span class="pi">＋</span>New concept “${esc(q.trim())}”</button>` : '')
+      + (it.concept ? `<button class="pop-i danger" data-act="snip-unfile" data-id="${id}"><span class="pi">✕</span>Remove from concept</button>` : '');
+  };
+  $('#pop').innerHTML = `<div class="pop-h">File under concept</div><input class="input" id="popQ" placeholder="Search or name a new concept" style="height:32px;margin:2px 0 6px" /><div id="popList"></div>`;
+  draw(); placePop(anchor);
+  const qi = $('#popQ'); qi.focus();
+  qi.addEventListener('input', () => draw(qi.value));
+  qi.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); $('#popList .pop-i')?.click(); } });
+}
+/* floating toolbar on text selection (notes + Claude answers) */
+let selCtx = null;
+function showSelbar() {
+  const sel = getSelection();
+  if (!sel.rangeCount || sel.isCollapsed) return hideSelbar();
+  const node = sel.anchorNode?.nodeType === 3 ? sel.anchorNode.parentElement : sel.anchorNode;
+  const zone = node?.closest?.('.bx, .chat .md, .proposal-b, .snip-md');
+  const text = sel.toString().replace(/\s+/g, ' ').trim();
+  if (!zone || !text || text.length > 400 || !curPaper()) return hideSelbar();
+  selCtx = { text, doc: curPaper() };
+  const bar = $('#selbar');
+  bar.innerHTML = `<button data-act="sel-concept" title="Open a concept page for this">🧠 Concept</button><button data-act="sel-ask">✨ Explain</button><button data-act="sel-save">📌 Save</button>`;
+  bar.classList.add('open');
+  const r = sel.getRangeAt(0).getBoundingClientRect();
+  const w = bar.offsetWidth;
+  bar.style.left = `${Math.max(8, Math.min(innerWidth - w - 8, r.left + r.width / 2 - w / 2))}px`;
+  bar.style.top = `${r.top > 56 ? r.top - 44 : r.bottom + 8}px`;
+}
+function hideSelbar() { $('#selbar')?.classList.remove('open'); }
+document.addEventListener('mouseup', (e) => { if (e.target.closest?.('#selbar')) return; setTimeout(showSelbar, 0); });
+document.addEventListener('keyup', (e) => { if (e.shiftKey) showSelbar(); });
+document.addEventListener('selectionchange', debounce(() => { const s = getSelection(); if (!s || s.isCollapsed) hideSelbar(); else if (matchMedia('(pointer: coarse)').matches) showSelbar(); }, 250));
+$('#selbar').addEventListener('mousedown', (e) => e.preventDefault());
+$('#main').addEventListener('scroll', hideSelbar, { passive: true });
+
+/* Saved (notebook of everything kept from study sessions) */
+function renderSaved() {
+  setCrumbs('<b>Saved</b>'); document.title = 'Saved · Folio'; $('#topActions').innerHTML = '';
+  let list = S.saved;
+  if (ui.skind) list = list.filter((x) => x.kind === ui.skind);
+  const q = (ui.sq || '').trim().toLowerCase();
+  if (q) list = list.filter((x) => [x.md, x.q, docOf(x.src)?.title, concept(x.concept)?.title].join(' ').toLowerCase().includes(q));
+  if (ui.shuffle) { list = [...list]; for (let i = list.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [list[i], list[j]] = [list[j], list[i]]; } }
+  const groups = []; let cur = null;
+  for (const it of list) { const d = ui.shuffle ? 'Shuffled' : fmtDate(it.added); if (!cur || cur.d !== d) groups.push(cur = { d, items: [] }); cur.items.push(it); }
+  const n = (k) => S.saved.filter((x) => x.kind === k).length;
+  return `<div class="lib" style="max-width:820px">
+    <div class="page-title">📌 Saved</div>
+    <div class="page-sub">Takeaways, answers and highlights you kept while studying — ${S.saved.length} in total</div>
+    <div class="viewbar">
+      <button class="tbtn${!ui.skind ? ' on' : ''}" data-act="saved-filter" data-k="">All</button>
+      ${Object.entries(KIND).map(([k, v]) => `<button class="tbtn${ui.skind === k ? ' on' : ''}" data-act="saved-filter" data-k="${k}">${v.i} ${v.l}s <span style="color:var(--ink-3)">${n(k)}</span></button>`).join('')}
+      <span class="grow"></span>
+      <button class="tbtn${ui.shuffle ? ' on' : ''}" data-act="saved-shuffle" title="Shuffle to review">🔀 Review</button>
+      <input class="search" id="savedSearch" placeholder="Search saved" value="${esc(ui.sq || '')}" />
+    </div>
+    ${!S.saved.length ? `<div class="empty"><div class="big">📌</div><b>Nothing saved yet</b>While you study with Claude, tap <b>Save</b> on a 💡 takeaway or <b>📌 Save answer</b>.<br/>Select any text in your notes or Claude's answers to save it, explain it, or turn it into a concept.</div>`
+      : !list.length ? '<div class="empty" style="padding:40px"><b>Nothing matches</b></div>'
+      : groups.map((g) => `<div class="sgroup"><div class="sg-h">${g.d}</div>${g.items.map((x) => snipHTML(x, null)).join('')}</div>`).join('')}
+  </div>`;
+}
+function bindSaved() {
+  const s = $('#savedSearch');
+  s?.addEventListener('input', debounce(() => { ui.sq = s.value; const pos = s.selectionStart; $('#main').innerHTML = renderSaved(); bindSaved(); const n = $('#savedSearch'); n.focus(); n.setSelectionRange(pos, pos); }, 180));
+}
+
 /* ───────── Concepts (gallery) ───────── */
 function newConcept_(field) {
   const c = newConcept({ field: field && field !== 'Unsorted' ? field : '' });
@@ -451,9 +583,11 @@ function renderPaper(p) {
     <div id="pageHead">${isConcept(p) ? conceptHeadHTML(p) : paperHeadHTML(p)}</div>
     <div class="blocks" id="blocks"></div>
     <div class="blocks-tail" data-act="tail"></div>
+    <div id="snips"></div>
   </div>`;
   bindPaperHead(p);
   renderBlocks(p);
+  renderSnips(p);
 }
 function renderTopActions(p) {
   $('#topActions').innerHTML = `
@@ -550,7 +684,7 @@ const BTYPES = [
   { t: 'code', label: 'Code', icon: '</>', desc: 'Code or equations', keys: 'code mono equation' },
   { t: 'hr', label: 'Divider', icon: '—', desc: 'Separate sections', keys: 'divider line hr' },
 ];
-const PH = { p: "Type '/' for commands", h1: 'Heading 1', h2: 'Heading 2', h3: 'Heading 3', ul: 'List', ol: 'List', todo: 'To-do', quote: 'Quote', callout: 'Callout', code: 'Code' };
+const PH = { p: "Write freely… type '/' for blocks", h1: 'Heading 1', h2: 'Heading 2', h3: 'Heading 3', ul: 'List', ol: 'List', todo: 'To-do', quote: 'Quote', callout: 'Callout', code: 'Code' };
 
 function blockHTML(b, num) {
   if (b.t === 'hr') return `<div class="blk t-hr" data-id="${b.id}"><div class="blk-h"><button data-act="blk-add" title="Add below">＋</button><button class="drag" draggable="true" data-act="blk-menu" title="Drag to move · click for options">⋮⋮</button></div><div class="hrline"></div></div>`;
@@ -752,6 +886,7 @@ function placePop(anchor, below = true) {
   const pop = $('#pop'); pop.classList.add('open');
   const r = anchor.getBoundingClientRect(); const ph = pop.offsetHeight; const pw = pop.offsetWidth;
   let top = below ? r.bottom + 4 : r.top; if (top + ph > innerHeight - 10) top = Math.max(10, r.top - ph - 4);
+  top = Math.min(top, innerHeight - ph - 10);
   let left = Math.min(r.left, innerWidth - pw - 10);
   pop.style.top = `${top}px`; pop.style.left = `${Math.max(10, left)}px`;
 }
@@ -944,7 +1079,7 @@ function aiWarnHTML() {
 function drawChat(p) {
   const el = $('#chat'); if (!el) return;
   const intro = isConcept(p)
-    ? `<div class="chat-intro"><b>Study this concept with Claude</b>Claude sees your notes${p.related.length ? ` and the ${p.related.length} linked paper${p.related.length === 1 ? '' : 's'}` : ''}. Ask in Korean or English.
+    ? `${suggestHTML(p)}<div class="chat-intro"><b>Study this concept with Claude</b>Claude sees your notes${p.related.length ? ` and the ${p.related.length} linked paper${p.related.length === 1 ? '' : 's'}` : ''}. Ask in Korean or English.
     <div class="quick">${QUICK_C.map((q) => `<button data-act="ai-quick" data-q="${q[0]}">${q[1]}</button>`).join('')}</div></div>`
     : `<div class="chat-intro"><b>Ask Claude about this paper</b>${p.pdf ? `Claude has read all ${p.pdf.pages} pages.` : 'No PDF attached — Claude only sees the details and your notes.'} Ask in Korean or English.
     <div class="quick">${QUICK.map((q) => `<button data-act="ai-quick" data-q="${q[0]}">${q[1]}</button>`).join('')}</div></div>`;
@@ -968,7 +1103,7 @@ const QUICK_PROMPTS = {
   'c-quiz': 'Quiz me on this concept: ask me 3 questions, one at a time, from basic to hard. Wait for my answer before giving feedback and the next question.',
   'c-papers': 'How does this concept show up in the papers linked here? Point to specifics (measurements, figures, claims) and what I should look for when reading.',
   'c-confuse': 'What are the most common misconceptions or easy-to-confuse neighboring concepts? Contrast them clearly.',
-  summarize: 'Read the whole paper and write structured reading notes into my notes. Keep anything I already wrote. Use these sections: TL;DR (2–3 sentences), Key findings (bullets with the important numbers), Methods (synthesis / experimental / computational details that matter for reproducing it), Results, Limitations, Questions & ideas. Put the full updated notes in <notes>.',
+  summarize: 'Read the whole paper and write structured reading notes into my notes. Keep anything I already wrote. Use these sections: Summary (2–3 sentences), Key findings (bullets with the important numbers), Methods (synthesis / experimental / computational details that matter for reproducing it), Results, Limitations, Questions & ideas. Put the full updated notes in <notes>.',
   findings: 'What are the key findings? List them with the specific numbers (yields, PLQY, efficiencies, sizes, wavelengths, conditions…) and which figure or table each comes from.',
   methods: 'Explain the methods step by step, in enough detail that I could reproduce the key experiment. Call out precursor amounts, temperatures, times, and characterization techniques.',
   limits: 'What are the limitations, weak points, and open questions of this paper? Be critical and specific.',
@@ -978,15 +1113,23 @@ const QUICK_PROMPTS = {
 };
 function msgHTML(p, m, i) {
   if (m.r === 'user') return `<div class="msg user">${esc(m.shown || m.c)}</div>`;
-  const { text, notes } = splitNotes(m.c);
+  const { text, notes, takeaway } = splitNotes(m.c);
   const busy = m.streaming;
   return `<div class="msg assistant" data-i="${i}"><div class="who">${IC.spark} Claude${busy ? ' <span class="spin" style="width:11px;height:11px"></span>' : ''}</div>
     <div class="md${busy && !notes ? ' typing' : ''}">${mdToHTML(text) || (busy ? '' : '<p style="color:var(--ink-3)">(no reply)</p>')}</div>
     ${notes != null ? `<div class="proposal${m.applied ? ' applied' : ''}"><div class="proposal-h">📝 Proposed notes<span class="grow"></span>${busy ? '<span class="spin" style="width:11px;height:11px"></span> writing…' : m.applied ? '✓ Applied' : `<button class="btn btn-ghost btn-sm" data-act="notes-append" data-i="${i}">Append</button><button class="btn btn-primary btn-sm" data-act="notes-apply" data-i="${i}">Replace notes</button>`}</div><div class="proposal-b md">${mdToHTML(notes)}</div></div>` : ''}
-    ${!busy && text.trim() ? `<div class="msg-actions"><button data-act="msg-insert" data-i="${i}">＋ Add to notes</button><button data-act="msg-copy" data-i="${i}">Copy</button></div>` : ''}
+    ${!busy && takeaway ? `<div class="takeaway${m.savedT ? ' saved' : ''}"><span class="tk-i">💡</span><span class="tk-t">${inlineMd(takeaway)}</span>${m.savedT ? '<span class="tk-ok">✓ Saved</span>' : `<button class="btn btn-primary btn-sm" data-act="save-takeaway" data-i="${i}">Save</button>`}</div>` : ''}
+    ${!busy && text.trim() ? `<div class="msg-actions">${m.saved ? '<button disabled>✓ Saved</button>' : `<button data-act="save-answer" data-i="${i}">📌 Save answer</button>`}<button data-act="msg-insert" data-i="${i}">＋ Add to notes</button><button data-act="msg-copy" data-i="${i}">Copy</button></div>` : ''}
     ${m.err ? `<div class="ai-warn">${esc(m.err)}</div>` : ''}</div>`;
 }
 function splitNotes(c) {
+  let takeaway = null;
+  const ts = c.indexOf('<takeaway>');
+  if (ts >= 0) { const te = c.indexOf('</takeaway>', ts); if (te >= 0) takeaway = c.slice(ts + 10, te).trim(); c = c.slice(0, ts) + (te < 0 ? '' : c.slice(te + 11)); }
+  else c = c.replace(/<[a-z]{0,9}$/, '');
+  const r = splitNotes_(c); r.takeaway = takeaway; return r;
+}
+function splitNotes_(c) {
   const s = c.indexOf('<notes>'); if (s < 0) return { text: c, notes: null };
   const e = c.indexOf('</notes>', s);
   const notes = c.slice(s + 7, e < 0 ? undefined : e).trim();
@@ -994,17 +1137,23 @@ function splitNotes(c) {
   return { text, notes };
 }
 
+const TAKEAWAY_RULE = `- When your answer teaches something worth remembering (a definition, a key relation, a number, an insight), end with exactly one line: <takeaway>…</takeaway> — one self-contained sentence (max ~30 words) in the user's language that would make sense on a flashcard later, with no Markdown headings. Skip it for chit-chat, quizzes in progress, or pure note edits.`;
 async function buildConceptSystem(c, canEdit) {
   const rules = `You are Claude, a patient tutor inside Folio — a Notion-style app where a graduate researcher (materials chemistry, e.g. halide perovskite nanocrystals, spectroscopy, ML for synthesis) keeps study notes on scientific concepts.
 - Answer in the language the user writes in (Korean or English). Build intuition first, then rigor. Be correct and concrete: give units, typical values and a worked example when useful. Say when something is approximate or debated.
 - Format with Markdown: short paragraphs, ## headings, bullet lists, **bold** for key terms. Don't use tables. Write equations and formulas with Unicode (E = hν, τ, ΔG, CsPbBr₃) rather than LaTeX.
-${canEdit ? `- You can edit the user's notes. When the user asks you to write, change, reorganize, translate, add to or summarize into their notes, first say in one or two sentences what you changed, then output the COMPLETE updated notes (not just the changed part) as Markdown inside <notes>...</notes>. Preserve what the user wrote unless asked to change it. Only use <notes> when the user wants their notes changed.` : '- Note editing is turned off: never output <notes> tags; just answer.'}`;
+${canEdit ? `- You can edit the user's notes. When the user asks you to write, change, reorganize, translate, add to or summarize into their notes, first say in one or two sentences what you changed, then output the COMPLETE updated notes (not just the changed part) as Markdown inside <notes>...</notes>. Preserve what the user wrote unless asked to change it. Only use <notes> when the user wants their notes changed.` : '- Note editing is turned off: never output <notes> tags; just answer.'}
+${TAKEAWAY_RULE}`;
   const rel = c.related.map(paper).filter(Boolean).map((p) => {
     const notes = blocksToMd(p.blocks).slice(0, 2500);
     return `<linked_paper title="${(p.title || '').replace(/"/g, "'")}" year="${p.year}" venue="${(p.venue || '').replace(/"/g, "'")}">\n${notes}\n</linked_paper>`;
   }).join('\n');
   const meta = [`Concept: ${c.title || '(untitled)'}`, c.field && `Field: ${c.field}`, c.tags.length && `Tags: ${c.tags.join(', ')}`, `Understanding: ${LEVEL[c.level]?.label || c.level}`, c.sources && `Sources: ${c.sources}`].filter(Boolean).join('\n');
-  return [{ type: 'text', text: rules }, { type: 'text', text: `<concept>\n${meta}\n</concept>\n\n${rel ? `<linked_papers note="the user's notes on papers related to this concept">\n${rel}\n</linked_papers>\n\n` : ''}<current_notes>\n${blocksToMd(c.blocks) || '(empty)'}\n</current_notes>` }];
+  const out = [{ type: 'text', text: rules }];
+  const src = c.from && paper(c.from);
+  const srcText = src ? await paperText(src.id) : '';
+  if (srcText) out.push({ type: 'text', text: `<source_paper title="${(src.title || '').replace(/"/g, "'")}" note="the paper where the user met this concept">\n${srcText.slice(0, 150000)}\n</source_paper>`, cache_control: { type: 'ephemeral' } });
+  return [...out, { type: 'text', text: `<concept>\n${meta}\n</concept>\n\n${rel ? `<linked_papers note="the user's notes on papers related to this concept">\n${rel}\n</linked_papers>\n\n` : ''}<current_notes>\n${blocksToMd(c.blocks) || '(empty)'}\n</current_notes>` }];
 }
 async function buildSystem(p, canEdit) {
   if (isConcept(p)) return buildConceptSystem(p, canEdit);
@@ -1013,7 +1162,8 @@ async function buildSystem(p, canEdit) {
   const rules = `You are Claude, a research assistant inside Folio — a Notion-style app where a graduate researcher keeps reading notes on scientific papers (often materials chemistry, e.g. halide perovskite nanocrystals).
 - Answer in the language the user writes in (Korean or English). Be precise and concrete; quote numbers and point to figures/tables/pages when you can. If the paper doesn't say something, say so instead of guessing.
 - Format with Markdown: short paragraphs, ## headings, bullet lists, **bold** for key terms. Don't use tables. Write chemical formulas and equations with Unicode (CsPbBr₃, λ = 520 nm, ΔG) rather than LaTeX.
-${canEdit ? `- You can edit the user's notes. When the user asks you to write, change, reorganize, translate, add to or summarize into their notes, first say in one or two sentences what you changed, then output the COMPLETE updated notes (not just the changed part) as Markdown inside <notes>...</notes>. Preserve what the user wrote unless asked to change it. Only use <notes> when the user wants their notes changed.` : '- Note editing is turned off: never output <notes> tags; just answer.'}`;
+${canEdit ? `- You can edit the user's notes. When the user asks you to write, change, reorganize, translate, add to or summarize into their notes, first say in one or two sentences what you changed, then output the COMPLETE updated notes (not just the changed part) as Markdown inside <notes>...</notes>. Preserve what the user wrote unless asked to change it. Only use <notes> when the user wants their notes changed.` : '- Note editing is turned off: never output <notes> tags; just answer.'}
+${TAKEAWAY_RULE}`;
   const sys = [{ type: 'text', text: rules }];
   if (text) sys.push({ type: 'text', text: `<paper_full_text pages="${p.pdf?.pages || '?'}">\n${text}\n</paper_full_text>`, cache_control: { type: 'ephemeral' } });
   sys.push({ type: 'text', text: `<paper_details>\n${meta}\n</paper_details>\n\n<current_notes>\n${blocksToMd(p.blocks) || '(empty)'}\n</current_notes>${text ? '' : '\n\n(No PDF text is available for this paper.)'}` });
@@ -1150,7 +1300,7 @@ function renderSettings() {
       <div class="s-row"><div class="s-text"><div class="s-title">Export library</div><div class="s-desc">Papers + notes as JSON, or all notes as Markdown</div></div><button class="btn btn-ghost btn-sm" data-act="export-json">JSON</button><button class="btn btn-ghost btn-sm" data-act="export-md">Markdown</button></div>
       <div class="s-row"><div class="s-text"><div class="s-title">Import JSON backup</div><div class="s-desc">Merges into your library</div></div><label class="btn btn-ghost btn-sm">Choose…<input type="file" id="importIn" accept=".json,application/json" hidden /></label></div>
     </div>
-    <div class="note" style="text-align:center;margin-top:30px">Folio · v1.1</div>
+    <div class="note" style="text-align:center;margin-top:30px">Folio · v1.2</div>
   </div>`;
 }
 async function refreshAiStatus() {
@@ -1172,7 +1322,7 @@ function ask(title, desc, okLabel = 'OK', danger) {
 let toastTm;
 function toast(msg, action, fn) {
   const t = $('#toast'); t.innerHTML = `<span>${esc(msg)}</span>${action ? `<button id="toastAct">${esc(action)}</button>` : ''}`; t.classList.add('show');
-  if (action) $('#toastAct').onclick = () => { t.classList.remove('show'); fn(); };
+  if (action) $('#toastAct').onclick = () => { t.classList.remove('show'); setTimeout(fn, 0); };
   clearTimeout(toastTm); toastTm = setTimeout(() => t.classList.remove('show'), action ? 6000 : 2400);
 }
 function newPaperModal(status) {
@@ -1231,7 +1381,7 @@ const A = {
   'set-level': (el) => { const c = curPaper(); c.level = el.dataset.l; c.updated = Date.now(); save(); renderPaperHeadOnly(); },
   'unlink-paper': (el) => { const c = curPaper(); c.related = c.related.filter((x) => x !== el.dataset.id); save(); renderPaperHeadOnly(); },
   'new-concept': (el) => newConcept_(el.dataset.field),
-  'concept-from-paper': () => { const p = curPaper(); const c = newConcept({ related: [p.id], field: '' }); S.concepts.unshift(c); save(); go(`#c-${c.id}`); setTimeout(() => $('#titleIn')?.focus(), 50); },
+  'concept-from-paper': () => { const p = curPaper(); const c = newConcept({ related: [p.id], from: p.id, blocks: fromBlocks(p) }); S.concepts.unshift(c); save(); go(`#c-${c.id}`); setTimeout(() => $('#titleIn')?.focus(), 50); },
   'set-status': (el) => { const p = curPaper(); p.status = el.dataset.s; p.updated = Date.now(); save(); renderPaperHeadOnly(); },
   rate: (el) => { const p = curPaper(); const n = Number(el.dataset.n); p.rating = p.rating === n ? 0 : n; save(true); renderPaperHeadOnly(); },
   'del-tag': (el) => { const p = curPaper(); p.tags.splice(Number(el.dataset.i), 1); save(); renderPaperHeadOnly(); },
@@ -1276,7 +1426,20 @@ const A = {
   'notes-apply': (el) => applyNotes(Number(el.dataset.i), 'replace'),
   'notes-append': (el) => applyNotes(Number(el.dataset.i), 'append'),
   'msg-insert': (el) => { const p = curPaper(); const { text } = splitNotes(p.chat[Number(el.dataset.i)].c); snapshotBlocks(p); const nb = mdToBlocks(text); p.blocks.push(...nb); save(true); renderBlocks(p); toast('Added to notes', 'Undo', applyUndo); },
-  'msg-copy': async (el) => { const p = curPaper(); await navigator.clipboard.writeText(p.chat[Number(el.dataset.i)].c.replace(/<\/?notes>/g, '')); toast('Copied'); },
+  'msg-copy': async (el) => { const p = curPaper(); await navigator.clipboard.writeText(p.chat[Number(el.dataset.i)].c.replace(/<takeaway>[\s\S]*?<\/takeaway>/g, '').replace(/<\/?notes>/g, '').trim()); toast('Copied'); },
+  'save-takeaway': (el) => { const p = curPaper(); const i = Number(el.dataset.i); const m = p.chat[i]; const { takeaway } = splitNotes(m.c); if (!takeaway) return; m.savedT = true; saveSnippet('takeaway', takeaway, p, askedBefore(p, i)); drawChatKeep(p); },
+  'save-answer': (el) => { const p = curPaper(); const i = Number(el.dataset.i); const m = p.chat[i]; const { text } = splitNotes(m.c); m.saved = true; saveSnippet('answer', text, p, askedBefore(p, i)); drawChatKeep(p); },
+  'snip-notes': (el) => { const p = curPaper(); const it = S.saved.find((x) => x.id === el.dataset.id); if (!it || !p) return; snapshotBlocks(p); p.blocks.push(...mdToBlocks(it.kind === 'takeaway' ? `> 💡 ${it.md}` : it.md)); save(true); renderBlocks(p); toast('Added to notes', 'Undo', applyUndo); },
+  'snip-file': (el) => fileUnder(el.dataset.id, el),
+  'snip-del': (el) => { const it = S.saved.find((x) => x.id === el.dataset.id); if (!it) return; S.saved = S.saved.filter((x) => x !== it); save(); refreshSnips(); toast('Removed', 'Undo', () => { S.saved.unshift(it); save(); refreshSnips(); }); },
+  'snip-pick': (el) => { const it = S.saved.find((x) => x.id === el.dataset.id); closePop(); if (!it) return; let cid = el.dataset.c; if (cid === '__new') { const t = el.dataset.t.trim(); if (!t) return; const c = newConcept({ title: t, related: paper(it.src) ? [it.src] : [] }); S.concepts.unshift(c); cid = c.id; } it.concept = cid; it.updated = Date.now(); save(); refreshSnips(); toast(`Filed under ${concept(cid)?.title || 'concept'}`, 'Open', () => go(`#c-${cid}`)); },
+  'snip-unfile': (el) => { const it = S.saved.find((x) => x.id === el.dataset.id); closePop(); if (!it) return; it.concept = null; save(); refreshSnips(); },
+  'saved-filter': (el) => { ui.skind = el.dataset.k || null; render(); },
+  'saved-shuffle': () => { ui.shuffle = !ui.shuffle; render(); },
+  'sel-concept': () => { const sb = selCtx; hideSelbar(); if (sb) conceptFor(sb.text, sb.doc); },
+  'sel-ask': () => { const sb = selCtx; hideSelbar(); if (!sb) return; const q = sb.doc && isConcept(sb.doc) ? `Explain “${sb.text}” — what it means and how it relates to this concept. Keep it short.` : `Explain “${sb.text}” as it is used in this paper — what it means and why it matters here. Keep it short.`; askNow(q, `Explain “${sb.text}”`); },
+  'sel-save': () => { const sb = selCtx; hideSelbar(); if (!sb) return; saveSnippet('highlight', sb.text, sb.doc, ''); getSelection().removeAllRanges(); },
+  'suggest-ask': (el) => { askNow(el.dataset.q, el.dataset.s); },
   'ai-check': () => refreshAiStatus(),
   'sync-setup': () => { try { localStorage.removeItem('folio-gate-skip'); } catch (_) {} showGate(); },
   'sync-now': () => syncNow(),
@@ -1290,6 +1453,7 @@ const A = {
 };
 function download(name, data, type) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([data], { type })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); }
 document.addEventListener('click', (e) => {
+  const cl = e.target.closest?.('.snip-md.clamp'); if (cl && !getSelection().toString()) cl.classList.toggle('open');
   const el = e.target.closest('[data-act]');
   if (!e.target.closest('#pop') && !(el && ['blk-menu', 'paper-menu', 'emoji', 'callout-emoji'].includes(el.dataset.act))) { if ($('#pop').classList.contains('open')) closePop(); }
   if (!el) return;
@@ -1307,6 +1471,7 @@ document.addEventListener('change', async (e) => {
       const d = JSON.parse(await f.text()); let n = 0;
       for (const p of d.papers || []) { if (paper(p.id)) continue; S.papers.push(normalize({ papers: [p] }).papers[0]); if (d.files?.[p.id]) await filePut(`txt-${p.id}`, d.files[p.id]); n++; }
       for (const c of d.concepts || []) { if (concept(c.id)) continue; S.concepts.push(normalize({ concepts: [c] }).concepts[0]); n++; }
+      for (const x of d.saved || []) { if (!S.saved.some((y) => y.id === x.id)) S.saved.push(x); }
       save(); render(); toast(`Imported ${n} page${n === 1 ? '' : 's'}`);
     } catch (_) { toast('That file isn\'t a Folio backup'); }
   }
@@ -1338,7 +1503,7 @@ async function ungz(buf) { const u = new Uint8Array(buf); if (u[0] === 82) retur
 let seen = null;
 const LOCAL_KEYS = ['_u', '_busy', 'opened'];
 const itemJSON = (it) => JSON.stringify(it, (k, v) => (LOCAL_KEYS.includes(k) ? undefined : v));
-const allDocs = (st = S) => [...(st.papers || []), ...(st.concepts || [])];
+const allDocs = (st = S) => [...(st.papers || []), ...(st.concepts || []), ...(st.saved || [])];
 function snapshotSeen() { seen = new Map(allDocs().map((p) => [p.id, itemJSON(p)])); }
 function initStamps() { S._t ||= {}; allDocs().forEach((p) => { p._u ||= p.updated || p.added || 1; }); const old = Date.now() - 200 * 864e5; for (const [k, t] of Object.entries(S._t)) if (t < old) delete S._t[k]; snapshotSeen(); }
 function stampChanges() {
@@ -1356,10 +1521,10 @@ function mergeState(L, R) {
     for (const p of R[name] || []) { const o = map.get(p.id); if (!o) map.set(p.id, p); else if ((p._u || 0) > (o._u || 0)) { const keep = { opened: o.opened, _busy: o._busy }; for (const k of Object.keys(o)) if (!(k in p)) delete o[k]; Object.assign(o, p, keep); } }
     return [...map.values()].filter((p) => !((tomb[p.id] || 0) >= (p._u || 0)));
   };
-  return { ...L, papers: col('papers'), concepts: col('concepts'), _t: tomb, _at: Math.max(L._at || 0, R._at || 0), v: Math.max(L.v || 1, R.v || 1) };
+  return { ...L, papers: col('papers'), concepts: col('concepts'), saved: col('saved'), _t: tomb, _at: Math.max(L._at || 0, R._at || 0), v: Math.max(L.v || 1, R.v || 1) };
 }
 const strip = (p) => JSON.parse(JSON.stringify(p, (k, v) => (k === '_busy' || k === 'opened' ? undefined : v)));
-const syncPayload = () => ({ v: S.v, _t: S._t, _at: S._at || 0, papers: S.papers.map(strip), concepts: S.concepts.map(strip) });
+const syncPayload = () => ({ v: S.v, _t: S._t, _at: S._at || 0, papers: S.papers.map(strip), concepts: S.concepts.map(strip), saved: S.saved.map(strip) });
 let syncBusy = false, syncAgain = false, pushTimer = null;
 function setSyncStatus(st) { if (SY) SY.state = st; const el = $('#syncStatus'); if (el) el.innerHTML = syncStatusText(); const dot = $('#syncDot'); if (dot) dot.className = `brand-sync ${st || ''}`; }
 function syncStatusText() {

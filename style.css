@@ -319,6 +319,44 @@ body.dragover .drop-hint { display: grid; }
 .cc-new:hover { color: var(--accent); border-color: var(--accent); }
 .pv .filechip .tag-x { margin-left: 2px; }
 
+
+/* ───── Study flow ───── */
+.selbar { position: fixed; z-index: 65; display: none; background: #2a2721; border-radius: 8px; padding: 3px; box-shadow: var(--shadow); gap: 2px; }
+.selbar.open { display: flex; }
+.selbar button { color: #fff; font-size: 13px; padding: 6px 10px; border-radius: 6px; white-space: nowrap; }
+.selbar button:hover { background: rgba(255, 255, 255, .14); }
+.suggest { display: flex; gap: 10px; align-items: flex-start; width: 100%; text-align: left; padding: 12px 14px; margin: 0 0 14px; border-radius: 10px; background: var(--accent-2); color: var(--accent); border: 1px solid #cfd9ec; font-size: 14px; line-height: 1.45; }
+.suggest:hover { background: #dde6f4; }
+.suggest svg { flex-shrink: 0; margin-top: 2px; }
+.suggest span span { color: var(--ink-2); font-size: 12.5px; }
+.takeaway { display: flex; align-items: center; gap: 10px; margin-top: 10px; padding: 9px 10px 9px 12px; border-radius: 8px; background: #fbf3dc; border: 1px solid #f0dfaa; font-size: 13.5px; line-height: 1.5; }
+.takeaway .tk-t { flex: 1; }
+.takeaway .tk-ok { font-size: 12px; color: #8a6a17; font-weight: 600; white-space: nowrap; }
+.takeaway.saved { opacity: .75; }
+.msg-actions button:disabled { color: var(--st-done); cursor: default; background: none; }
+.snips { margin: 10px 0 30px; padding-top: 18px; border-top: 1px solid var(--line); }
+.snips-h { font-size: 13px; font-weight: 600; color: var(--ink-3); margin-bottom: 10px; }
+.snips-h span { font-weight: 400; margin-left: 4px; }
+.snip { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px 8px; margin-bottom: 10px; }
+.snip.k-takeaway { background: #fffbef; border-color: #f2e4b8; }
+.snip-h { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-3); margin-bottom: 4px; min-width: 0; }
+.snip-h .grow { flex: 1; }
+.snip-k { font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+.snip-q { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.snip-d { white-space: nowrap; }
+.snip-md { font-size: 14.5px; line-height: 1.6; }
+.snip-tk { font-weight: 500; }
+.snip-hl { border-left: 3px solid var(--hl); padding-left: 10px; color: var(--ink); }
+.snip-md.clamp { max-height: 190px; overflow: hidden; -webkit-mask-image: linear-gradient(#000 75%, transparent); mask-image: linear-gradient(#000 75%, transparent); cursor: pointer; }
+.snip-md.clamp.open { max-height: none; -webkit-mask-image: none; mask-image: none; }
+.snip-f { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.snip-f .grow { flex: 1; }
+.snip-f button { font-size: 12px; color: var(--ink-3); padding: 3px 7px; border-radius: 5px; }
+.snip-f button:hover { background: var(--hover); color: var(--ink); }
+.snip-f .snip-src { background: var(--side); color: var(--ink-2); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sgroup { margin-top: 18px; }
+.sg-h { font-size: 12.5px; font-weight: 600; color: var(--ink-3); margin: 0 0 8px; }
+
 /* ───── Mobile ───── */
 @media (max-width: 860px) {
   .mob { display: grid; }
