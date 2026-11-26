@@ -1232,7 +1232,6 @@ function msgHTML(p, m, i) {
   return `<div class="msg assistant" data-i="${i}"><div class="who">${IC.spark} Claude${busy ? ' <span class="spin" style="width:11px;height:11px"></span>' : ''}</div>
     <div class="md${busy && !notes ? ' typing' : ''}">${mdToHTML(text) || (busy ? '' : '<p style="color:var(--ink-3)">(no reply)</p>')}</div>
     ${notes != null ? `<div class="proposal${m.applied ? ' applied' : ''}"><div class="proposal-h">📝 Proposed notes<span class="grow"></span>${busy ? '<span class="spin" style="width:11px;height:11px"></span> writing…' : m.applied ? '✓ Applied' : `<button class="btn btn-ghost btn-sm" data-act="notes-append" data-i="${i}">Append</button><button class="btn btn-primary btn-sm" data-act="notes-apply" data-i="${i}">Replace notes</button>`}</div><div class="proposal-b md">${mdToHTML(notes)}</div></div>` : ''}
-    ${!busy && takeaway ? `<div class="takeaway${m.savedT ? ' saved' : ''}"><span class="tk-i">💡</span><span class="tk-t">${inlineMd(takeaway)}</span>${m.savedT ? '<span class="tk-ok">✓ Saved</span>' : `<button class="btn btn-primary btn-sm" data-act="save-takeaway" data-i="${i}">Save</button>`}</div>` : ''}
     ${!busy && text.trim() ? `<div class="msg-actions">${m.saved ? '<button disabled>✓ Saved</button>' : `<button data-act="save-answer" data-i="${i}">📌 Save answer</button>`}<button data-act="msg-insert" data-i="${i}">＋ Add to notes</button><button data-act="msg-copy" data-i="${i}">Copy</button></div>` : ''}
     ${m.err ? `<div class="ai-warn">${esc(m.err)}</div>` : ''}</div>`;
 }
@@ -1251,7 +1250,7 @@ function splitNotes_(c) {
   return { text, notes };
 }
 
-const TAKEAWAY_RULE = `- When your answer teaches something worth remembering (a definition, a key relation, a number, an insight), end with exactly one line: <takeaway>…</takeaway> — one self-contained sentence (max ~30 words) in the user's language that would make sense on a flashcard later, with no Markdown headings. Skip it for chit-chat, quizzes in progress, or pure note edits.`;
+const TAKEAWAY_RULE = '';
 async function buildConceptSystem(c, canEdit) {
   const rules = `You are Claude, a patient tutor inside Folio — a Notion-style app where a graduate researcher (materials chemistry, e.g. halide perovskite nanocrystals, spectroscopy, ML for synthesis) keeps study notes on scientific concepts.
 - Answer in the language the user writes in (Korean or English). Build intuition first, then rigor. Be correct and concrete: give units, typical values and a worked example when useful. Say when something is approximate or debated.
@@ -1450,7 +1449,7 @@ function renderSettings() {
       <div class="s-row"><div class="s-text"><div class="s-title">Export library</div><div class="s-desc">Papers + notes as JSON, or all notes as Markdown</div></div><button class="btn btn-ghost btn-sm" data-act="export-json">JSON</button><button class="btn btn-ghost btn-sm" data-act="export-md">Markdown</button></div>
       <div class="s-row"><div class="s-text"><div class="s-title">Import JSON backup</div><div class="s-desc">Merges into your library</div></div><label class="btn btn-ghost btn-sm">Choose…<input type="file" id="importIn" accept=".json,application/json" hidden /></label></div>
     </div>
-    <div class="note" style="text-align:center;margin-top:30px">Folio · v1.4.1</div>
+    <div class="note" style="text-align:center;margin-top:30px">Folio · v1.4.2</div>
   </div>`;
 }
 async function refreshAiStatus() {
